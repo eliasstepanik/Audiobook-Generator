@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audiobook Generator</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ Audiobook Generator</h1>
+            <div class="stats" id="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Total Jobs</span>
+                    <span class="stat-value" id="stat-total">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Pending</span>
+                    <span class="stat-value" id="stat-pending">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Processing</span>
+                    <span class="stat-value" id="stat-processing">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Completed</span>
+                    <span class="stat-value" id="stat-completed">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Failed</span>
+                    <span class="stat-value" id="stat-failed">0</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Create Job Section -->
+            <section class="card create-job-section">
+                <h2>Create New Audiobook</h2>
+                
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="text">Text Input</button>
+                    <button class="tab-button" data-tab="file">File Upload</button>
+                </div>
+
+                <!-- Text Input Tab -->
+                <div class="tab-content active" id="text-tab">
+                    <form id="text-form">
+                        <div class="form-group">
+                            <label for="text-input">Text Content</label>
+                            <textarea id="text-input" rows="8" placeholder="Enter or paste your text here..." required></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="text-processing" checked>
+                                    Enable Text Processing (Ollama)
+                                </label>
+                                <small>Clean and optimize text using AI</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="speaker-detection" checked>
+                                    Enable Speaker Detection
+                                </label>
+                                <small>Detect and create unique voices for characters</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="webhook-url">Webhook URL (Optional)</label>
+                            <input type="url" id="webhook-url" placeholder="https://your-server.com/webhook">
+                            <small>Receive notification when job completes</small>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Generate Audiobook</button>
+                    </form>
+                </div>
+
+                <!-- File Upload Tab -->
+                <div class="tab-content" id="file-tab">
+                    <form id="file-form">
+                        <div class="form-group">
+                            <label for="file-input">Upload Text File</label>
+                            <input type="file" id="file-input" accept=".txt,.md" required>
+                            <small>Supported formats: .txt, .md</small>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="file-text-processing" checked>
+                                    Enable Text Processing (Ollama)
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="file-speaker-detection" checked>
+                                    Enable Speaker Detection
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="file-webhook-url">Webhook URL (Optional)</label>
+                            <input type="url" id="file-webhook-url" placeholder="https://your-server.com/webhook">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Upload and Generate</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Jobs List Section -->
+            <section class="card jobs-section">
+                <div class="section-header">
+                    <h2>Jobs</h2>
+                    <div class="controls">
+                        <select id="status-filter">
+                            <option value="">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <button class="btn btn-secondary" id="refresh-btn">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div id="jobs-list" class="jobs-list">
+                    <p class="loading">Loading jobs...</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

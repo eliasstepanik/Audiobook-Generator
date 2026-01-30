@@ -1,0 +1,344 @@
+// API Base URL
+const API_BASE = window.location.origin;
+
+// State
+let currentJobs = [];
+let autoRefreshInterval = null;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    initializeTabs();
+    initializeForms();
+    initializeFilters();
+    loadStats();
+    loadJobs();
+    startAutoRefresh();
+});
+
+// Tab Management
+function initializeTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabName = button.dataset.tab;
+            
+            // Update active tab button
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            
+            // Update active tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+        });
+    });
+}
+
+// Form Handling
+function initializeForms() {
+    // Text form submission
+    document.getElementById('text-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const text = document.getElementById('text-input').value;
+        const enableTextProcessing = document.getElementById('text-processing').checked;
+        const enableSpeakerDetection = document.getElementById('speaker-detection').checked;
+        const webhookUrl = document.getElementById('webhook-url').value;
+        
+        try {
+            const response = await fetch(`${API_BASE}/jobs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text,
+                    enable_text_processing: enableTextProcessing,
+                    enable_speaker_detection: enableSpeakerDetection,
+                    webhook_url: webhookUrl || null,
+                }),
+            });
+            
+            if (!response.ok) throw new Error('Failed to create job');
+            
+            const job = await response.json();
+            showToast('Job created successfully!', 'success');
+            document.getElementById('text-form').reset();
+            loadJobs();
+            loadStats();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, 'error');
+        }
+    });
+    
+    // File form submission
+    document.getElementById('file-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const fileInput = document.getElementById('file-input');
+        const file = fileInput.files[0];
+        const enableTextProcessing = document.getElementById('file-text-processing').checked;
+        const enableSpeakerDetection = document.getElementById('file-speaker-detection').checked;
+        const webhookUrl = document.getElementById('file-webhook-url').value;
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('enable_text_processing', enableTextProcessing);
+        formData.append('enable_speaker_detection', enableSpeakerDetection);
+        if (webhookUrl) {
+            formData.append('webhook_url', webhookUrl);
+        }
+        
+        try {
+            const response = await fetch(`${API_BASE}/jobs/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            
+            if (!response.ok) throw new Error('Failed to upload file');
+            
+            const job = await response.json();
+            showToast('File uploaded and job created!', 'success');
+            document.getElementById('file-form').reset();
+            loadJobs();
+            loadStats();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, 'error');
+        }
+    });
+}
+
+// Filters
+function initializeFilters() {
+    document.getElementById('status-filter').addEventListener('change', loadJobs);
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        loadJobs();
+        loadStats();
+        showToast('Refreshed', 'info');
+    });
+}
+
+// Load Statistics
+async function loadStats() {
+    try {
+        const response = await fetch(`${API_BASE}/stats`);
+        const stats = await response.json();
+        
+        document.getElementById('stat-total').textContent = stats.total_jobs;
+        document.getElementById('stat-pending').textContent = stats.pending;
+        document.getElementById('stat-processing').textContent = stats.processing;
+        document.getElementById('stat-completed').textContent = stats.completed;
+        document.getElementById('stat-failed').textContent = stats.failed;
+    } catch (error) {
+        console.error('Failed to load stats:', error);
+    }
+}
+
+// Load Jobs
+async function loadJobs() {
+    const statusFilter = document.getElementById('status-filter').value;
+    const jobsList = document.getElementById('jobs-list');
+    
+    try {
+        let url = `${API_BASE}/jobs?limit=100`;
+        if (statusFilter) {
+            url += `&status=${statusFilter}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        currentJobs = data.jobs;
+        
+        if (currentJobs.length === 0) {
+            jobsList.innerHTML = '<p class="empty-state">No jobs found</p>';
+            return;
+        }
+        
+        jobsList.innerHTML = currentJobs.map(job => renderJob(job)).join('');
+        
+        // Add event listeners to job action buttons
+        addJobActionListeners();
+        
+    } catch (error) {
+        jobsList.innerHTML = '<p class="error">Failed to load jobs</p>';
+        console.error('Failed to load jobs:', error);
+    }
+}
+
+// Render Job Card
+function renderJob(job) {
+    const statusClass = `status-${job.status}`;
+    const createdDate = new Date(job.created_at).toLocaleString();
+    
+    let actionsHTML = '';
+    
+    if (job.status === 'completed') {
+        actionsHTML = `
+            <button class="btn btn-success" onclick="downloadJob('${job.job_id}', '${job.output_filename}')">
+                ⬇️ Download
+            </button>
+        `;
+    }
+    
+    if (job.status === 'pending' || job.status === 'processing') {
+        actionsHTML += `
+            <button class="btn btn-danger" onclick="deleteJob('${job.job_id}')">
+                ✖️ Cancel
+            </button>
+        `;
+    }
+    
+    if (job.status === 'failed' || job.status === 'cancelled' || job.status === 'completed') {
+        actionsHTML += `
+            <button class="btn btn-secondary" onclick="deleteJob('${job.job_id}')">
+                🗑️ Delete
+            </button>
+        `;
+    }
+    
+    let progressHTML = '';
+    if (job.status === 'processing' || job.status === 'pending') {
+        const progressMessage = job.progress_message || 'Processing...';
+        progressHTML = `
+            <div class="job-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${job.progress}%"></div>
+                </div>
+                <div class="progress-text">${job.progress}% - ${escapeHtml(progressMessage)}</div>
+            </div>
+        `;
+    }
+    
+    let errorHTML = '';
+    if (job.error_message) {
+        errorHTML = `
+            <div class="error-message">
+                <strong>Error:</strong> ${escapeHtml(job.error_message.substring(0, 200))}
+            </div>
+        `;
+    }
+    
+    return `
+        <div class="job-item">
+            <div class="job-header">
+                <div>
+                    <div class="job-title">${escapeHtml(job.input_filename || 'Untitled Audiobook')}</div>
+                    <div class="job-id">ID: ${job.job_id}</div>
+                </div>
+                <div class="job-status ${statusClass}">${job.status}</div>
+            </div>
+            
+            ${progressHTML}
+            
+            <div class="job-details">
+                <div class="job-detail">
+                    <span class="job-detail-label">Created</span>
+                    <span class="job-detail-value">${createdDate}</span>
+                </div>
+                <div class="job-detail">
+                    <span class="job-detail-label">Text Processing</span>
+                    <span class="job-detail-value">${job.enable_text_processing ? '✅ Enabled' : '❌ Disabled'}</span>
+                </div>
+                <div class="job-detail">
+                    <span class="job-detail-label">Speaker Detection</span>
+                    <span class="job-detail-value">${job.enable_speaker_detection ? '✅ Enabled' : '❌ Disabled'}</span>
+                </div>
+                <div class="job-detail">
+                    <span class="job-detail-label">Output File</span>
+                    <span class="job-detail-value">${escapeHtml(job.output_filename)}</span>
+                </div>
+            </div>
+            
+            ${errorHTML}
+            
+            <div class="job-actions">
+                ${actionsHTML}
+            </div>
+        </div>
+    `;
+}
+
+// Job Actions
+function addJobActionListeners() {
+    // Event delegation is handled via onclick attributes in renderJob
+}
+
+async function downloadJob(jobId, filename) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/download`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to download file');
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showToast('Download started', 'success');
+    } catch (error) {
+        showToast(`Download failed: ${error.message}`, 'error');
+    }
+}
+
+async function deleteJob(jobId) {
+    if (!confirm('Are you sure you want to delete/cancel this job?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}`, {
+            method: 'DELETE',
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete job');
+        
+        showToast('Job deleted', 'success');
+        loadJobs();
+        loadStats();
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+}
+
+// Auto Refresh
+function startAutoRefresh() {
+    // Refresh every 5 seconds
+    autoRefreshInterval = setInterval(() => {
+        loadJobs();
+        loadStats();
+    }, 5000);
+}
+
+// Toast Notifications
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            container.removeChild(toast);
+        }, 300);
+    }, 3000);
+}
+
+// Utility Functions
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

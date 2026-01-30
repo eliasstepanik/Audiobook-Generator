@@ -1,0 +1,32 @@
+# Core dependencies
+torch>=2.0.0
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# TTS Model
+qwen-tts>=0.0.5
+transformers>=4.30.0
+accelerate>=0.20.0
+
+# API Client
+requests>=2.31.0
+
+# Audio processing
+pydub>=0.25.1
+
+# FastAPI and Server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# Utilities
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+
+# Optional: Flash Attention for faster inference
+# flash-attn>=2.0.0  # Uncomment if you have compatible CUDA setup

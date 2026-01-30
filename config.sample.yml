@@ -1,0 +1,71 @@
+# Audiobook Generator Configuration
+# Copy this file to 'config.yml' and modify as needed.
+
+# Application Settings
+app:
+  host: 0.0.0.0
+  port: 8000
+  debug: false
+  title: Audiobook Generator
+
+# Database Settings
+database:
+  url: sqlite:///audiobook_jobs.db
+  echo: false
+
+# TTS (Text-to-Speech) Settings
+tts:
+  device: null          # Auto-detect: cuda:0 or cpu
+  dtype: bfloat16
+  use_flash_attention: null  # Auto-detect
+  default_language: English
+  batch_size: 1000
+
+# Ollama LLM Settings
+ollama:
+  model: gpt-oss-16k:120b
+  base_url: http://192.168.178.166:11434/v1
+  timeout: 300
+  max_tokens: 2000
+  temperature: 0.1
+
+# Text Processing Settings
+text_processing:
+  batch_size: 16000
+  max_tokens: 8000
+
+# Audio Export Settings
+audio:
+  output_format: mp3
+  bitrate: 192000
+  sample_rate: 22050
+  channels: 1
+
+# Voice Control Defaults
+voice_control:
+  default_gender: male
+  default_age: 30
+  default_pitch: normal
+  default_pace: normal
+  default_tone: neutral
+  default_mood: null
+  default_energy: medium
+  default_clarity: clear
+  default_formality: neutral
+
+# Progress Tracking
+progress:
+  auto_refresh_interval: 2000
+  detailed_progress: true
+
+# Security Settings
+security:
+  max_input_length: 1000000
+  max_file_size: 104857600  # 100MB
+  allowed_file_types:
+    - .txt
+    - .md
+    - .rtf
+    - .docx
+  cors_origins:
+    - "*"
