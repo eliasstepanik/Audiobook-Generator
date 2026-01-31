@@ -1,5 +1,5 @@
 # Audiobook Generator - ROCm (AMD GPU) Docker build
-# Supports AMD GPU acceleration for TTS via ROCm
+# Supports AMD GPU acceleration for TTS via ROCm with Flash Attention
 
 FROM rocm/pytorch:latest AS base
 
@@ -10,6 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
+    ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security (use different UID since 1000 may be taken in base image)
@@ -40,6 +41,9 @@ RUN pip install --no-cache-dir --upgrade pip \
     pydantic \
     python-dotenv \
     tqdm
+
+# Install Flash Attention for ROCm (if available)
+RUN pip install --no-cache-dir flash-attn --no-build-isolation || echo "Flash Attention not available for ROCm, skipping"
 
 # Copy application code
 COPY src/ ./src/
