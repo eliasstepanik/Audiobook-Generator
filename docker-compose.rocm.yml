@@ -21,13 +21,18 @@ services:
       # Pass through AMD GPU
       - /dev/kfd
       - /dev/dri
+    # Use host GIDs for GPU access (run 'getent group video render' on host to verify)
     group_add:
       - video
       - render
+    security_opt:
+      - seccomp:unconfined
+    # Uncomment to run as root for debugging GPU access issues:
+    # user: root
     environment:
       # ROCm environment variables
-      - HSA_OVERRIDE_GFX_VERSION=10.3.0
-      - PYTORCH_ROCM_ARCH=gfx1030
+      - HSA_OVERRIDE_GFX_VERSION=11.5.1
+      - PYTORCH_ROCM_ARCH=gfx1100
       # Adjust for your GPU architecture:
       # gfx900  - Vega 10 (RX Vega 56/64, MI25)
       # gfx906  - Vega 20 (MI50/MI60, Radeon VII)
