@@ -30,6 +30,8 @@ services:
     # Uncomment to run as root for debugging GPU access issues:
     # user: root
     environment:
+      # Disable flash attention by default (can cause issues on some GPUs)
+      - INSTALL_FLASH_ATTN=false
       # ROCm environment variables
       # Note: gfx1151 (Radeon 8060S/RDNA 3.5) has native support in rocm/pytorch:latest
       # HSA_OVERRIDE_GFX_VERSION is only needed for unsupported architectures
