@@ -19,14 +19,18 @@ except ImportError:
     QWEN_TTS_AVAILABLE = False
 
 # Auto-detect Flash Attention availability
+# Note: flash_attn import can fail at runtime (not just ImportError) if GPU not available
+FLASH_ATTENTION_AVAILABLE = False
 try:
     import flash_attn
 
     FLASH_ATTENTION_AVAILABLE = True
     logger.info("Flash Attention 2 detected and available")
 except ImportError:
-    FLASH_ATTENTION_AVAILABLE = False
     logger.info("Flash Attention 2 not installed - using standard attention")
+except Exception as e:
+    # Catch RuntimeError from Triton driver detection, etc.
+    logger.info(f"Flash Attention 2 not available: {e}")
 
 
 @dataclass
