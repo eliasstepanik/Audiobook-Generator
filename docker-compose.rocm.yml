@@ -31,15 +31,16 @@ services:
     # user: root
     environment:
       # ROCm environment variables
-      - HSA_OVERRIDE_GFX_VERSION=11.5.1
+      # gfx1151 (Radeon 8060S/RDNA 3.5) needs override to gfx1100 for PyTorch compatibility
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
       - PYTORCH_ROCM_ARCH=gfx1100
-      # Adjust for your GPU architecture:
-      # gfx900  - Vega 10 (RX Vega 56/64, MI25)
-      # gfx906  - Vega 20 (MI50/MI60, Radeon VII)
-      # gfx908  - MI100
-      # gfx90a  - MI200 series
-      # gfx1030 - RDNA 2 (RX 6800/6900)
-      # gfx1100 - RDNA 3 (RX 7900)
+      # Adjust HSA_OVERRIDE_GFX_VERSION for your GPU architecture:
+      # 9.0.0   - gfx900  - Vega 10 (RX Vega 56/64, MI25)
+      # 9.0.6   - gfx906  - Vega 20 (MI50/MI60, Radeon VII)
+      # 9.0.8   - gfx908  - MI100
+      # 9.0.10  - gfx90a  - MI200 series
+      # 10.3.0  - gfx1030 - RDNA 2 (RX 6800/6900)
+      # 11.0.0  - gfx1100 - RDNA 3 (RX 7900) and RDNA 3.5 (gfx1151)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
