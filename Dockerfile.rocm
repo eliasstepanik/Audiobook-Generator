@@ -49,15 +49,10 @@ RUN pip install --no-cache-dir --upgrade pip \
     ninja
 
 # Install qwen-tts separately to ensure it succeeds
+# Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
+# when flash_attn is installed but no GPU is available at import time.
+# qwen_tts will use standard attention as fallback.
 RUN pip install --no-cache-dir qwen-tts
-
-# Try to install Flash Attention with Triton backend for ROCm (optional, may fail)
-ENV FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
-RUN pip install --no-cache-dir triton || true
-RUN git clone https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attention \
-    && cd /tmp/flash-attention \
-    && pip install . --no-build-isolation || echo "Flash Attention build failed, continuing without it" \
-    && rm -rf /tmp/flash-attention
 
 # Copy application code
 COPY src/ ./src/
@@ -79,9 +74,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 # Numba cache directory (fixes librosa caching issue)
 ENV NUMBA_CACHE_DIR=/tmp/numba_cache
-# Enable Flash Attention Triton backend for ROCm
-ENV FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
-# Skip runtime flash-attn install (already built)
+# Skip runtime flash-attn install (not compatible with ROCm in qwen_tts)
 ENV INSTALL_FLASH_ATTN=false
 
 # Expose port
