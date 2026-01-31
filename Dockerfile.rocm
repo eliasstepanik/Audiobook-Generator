@@ -61,10 +61,12 @@ COPY run_server.py .
 COPY config.sample.yml .
 COPY docker-entrypoint.sh .
 
-# Create data directories and set permissions
+# Create data directories, cache directories, and set permissions
 RUN mkdir -p /app/data/input /app/data/output /app/data/temp \
+    && mkdir -p /home/appuser/.cache/huggingface \
     && chmod +x /app/docker-entrypoint.sh \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && chown -R appuser:appuser /home/appuser/.cache
 
 # Switch to non-root user
 USER appuser
@@ -72,6 +74,8 @@ USER appuser
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+# Hugging Face cache directory
+ENV HF_HOME=/home/appuser/.cache/huggingface
 # Numba cache directory (fixes librosa caching issue)
 ENV NUMBA_CACHE_DIR=/tmp/numba_cache
 # Skip runtime flash-attn install (not compatible with ROCm in qwen_tts)
