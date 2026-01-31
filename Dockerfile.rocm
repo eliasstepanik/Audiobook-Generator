@@ -26,14 +26,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
     python3.11-dev \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment to avoid Ubuntu's broken setuptools
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3.11 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Upgrade pip and install working setuptools in venv
+RUN pip install --no-cache-dir --upgrade pip "setuptools<70" wheel
 
 # Install custom PyTorch wheel with gfx1151 support from TheRock project
 # These wheels are built specifically for RDNA 3.5 (gfx1151) GPUs - Python 3.11 only
-RUN pip install --no-cache-dir --break-system-packages \
+RUN pip install --no-cache-dir \
     https://github.com/scottt/rocm-TheRock/releases/download/v6.5.0rc-pytorch/torch-2.7.0a0+gitbfd8155-cp311-cp311-linux_x86_64.whl
 
 # Create app user for security (use different UID since 1000 may be taken in base image)
@@ -46,8 +51,8 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (skip pip upgrade - system pip works fine)
-RUN pip install --no-cache-dir --break-system-packages \
+# Install Python dependencies
+RUN pip install --no-cache-dir \
     soundfile \
     numpy \
     transformers \
@@ -64,18 +69,13 @@ RUN pip install --no-cache-dir --break-system-packages \
     python-dotenv \
     tqdm \
     packaging \
-    wheel \
-    setuptools \
     ninja
 
-# Install sox Python package with older setuptools to avoid build issues
-# Then install qwen-tts
+# Install sox Python package and qwen-tts
 # Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
 # when flash_attn is installed but no GPU is available at import time.
 # qwen_tts will use standard attention as fallback.
-RUN pip install --no-cache-dir --break-system-packages "setuptools<75" \
-    && pip install --no-cache-dir --break-system-packages sox \
-    && pip install --no-cache-dir --break-system-packages qwen-tts
+RUN pip install --no-cache-dir sox qwen-tts
 
 # Copy application code
 COPY src/ ./src/
