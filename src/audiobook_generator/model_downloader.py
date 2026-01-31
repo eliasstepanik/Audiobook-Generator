@@ -46,19 +46,7 @@ class ModelDownloader:
             logger.error("qwen_tts not installed! Please install: pip install qwen-tts")
             return False
 
-        # Determine actual device and dtype for verification
-        # Use CPU for verification if GPU is not available to avoid startup failures
-        verification_device = device
-        verification_dtype = getattr(torch, dtype)
-
-        if device != "cpu" and not torch.cuda.is_available():
-            logger.warning("GPU not available for verification, using CPU instead")
-            logger.warning(
-                "Models will be loaded on GPU when actually used (if available)"
-            )
-            verification_device = "cpu"
-            # bfloat16 on CPU can be slow, use float32 for verification
-            verification_dtype = torch.float32
+        torch_dtype = getattr(torch, dtype)
 
         for idx, model_info in enumerate(self.models_to_download):
             logger.info(
@@ -84,11 +72,11 @@ class ModelDownloader:
 
                 # Load model (will download if not cached)
                 kwargs = {
-                    "device_map": verification_device,
-                    "dtype": verification_dtype,
+                    "device_map": device,
+                    "dtype": torch_dtype,
                 }
 
-                logger.info(f"Loading {model_info['name']} on {verification_device}...")
+                logger.info(f"Loading {model_info['name']}...")
                 model = Qwen3TTSModel.from_pretrained(model_info["repo"], **kwargs)
 
                 # Verify model loaded successfully
