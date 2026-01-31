@@ -23,6 +23,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies (skip torch since it's pre-installed in base image)
+# Include build tools for runtime flash-attn installation
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir \
     soundfile \
@@ -40,19 +41,21 @@ RUN pip install --no-cache-dir --upgrade pip \
     pyyaml \
     pydantic \
     python-dotenv \
-    tqdm
-
-# Install Flash Attention for ROCm (if available)
-RUN pip install --no-cache-dir flash-attn --no-build-isolation || echo "Flash Attention not available for ROCm, skipping"
+    tqdm \
+    packaging \
+    wheel \
+    setuptools
 
 # Copy application code
 COPY src/ ./src/
 COPY frontend/ ./frontend/
 COPY run_server.py .
 COPY config.sample.yml .
+COPY docker-entrypoint.sh .
 
-# Create data directories
+# Create data directories and set permissions
 RUN mkdir -p /app/data/input /app/data/output /app/data/temp \
+    && chmod +x /app/docker-entrypoint.sh \
     && chown -R appuser:appuser /app
 
 # Switch to non-root user
@@ -61,13 +64,18 @@ USER appuser
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+# Set to false to skip Flash Attention installation at startup
+ENV INSTALL_FLASH_ATTN=true
 
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+# Health check (longer start period for flash-attn installation)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/stats')" || exit 1
+
+# Entrypoint installs Flash Attention if GPU available
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # Default command
 CMD ["python", "run_server.py"]
