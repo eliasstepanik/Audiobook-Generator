@@ -6,9 +6,11 @@ FROM rocm/pytorch:latest AS base
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies including sox for qwen-tts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    sox \
+    libsox-dev \
     git \
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
@@ -64,8 +66,10 @@ USER appuser
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-# Set to false to skip Flash Attention installation at startup
-ENV INSTALL_FLASH_ATTN=true
+# Numba cache directory (fixes librosa caching issue)
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
+# Flash Attention not supported on ROCm via pip - disable auto-install
+ENV INSTALL_FLASH_ATTN=false
 
 # Expose port
 EXPOSE 8000

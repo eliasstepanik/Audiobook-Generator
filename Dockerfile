@@ -7,13 +7,17 @@ FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS base
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies including sox for qwen-tts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
+    python3.11-dev \
     python3-pip \
     ffmpeg \
+    sox \
+    libsox-dev \
     git \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
@@ -52,6 +56,8 @@ USER appuser
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+# Numba cache directory (fixes librosa caching issue)
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
 # Set to false to skip Flash Attention installation at startup
 ENV INSTALL_FLASH_ATTN=true
 
