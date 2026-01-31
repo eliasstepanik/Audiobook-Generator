@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user for security
-RUN useradd -m -u 1000 appuser
+# Create app user for security (use different UID since 1000 may be taken in base image)
+RUN useradd -m -u 1001 appuser || true
 
 # Set working directory
 WORKDIR /app
