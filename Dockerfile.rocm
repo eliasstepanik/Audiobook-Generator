@@ -1,12 +1,14 @@
 # Audiobook Generator - ROCm (AMD GPU) Docker build
-# Supports AMD GPU acceleration for TTS via ROCm with Flash Attention (Triton backend)
+# Supports AMD GPU acceleration for TTS via ROCm
+# Uses custom PyTorch wheels for gfx1151 (Radeon 8060S/RDNA 3.5) support
+# See: https://github.com/ROCm/TheRock/discussions/655
 
-FROM rocm/pytorch:latest AS base
+FROM rocm/dev-ubuntu-24.04:6.4.1 AS base
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies including sox for qwen-tts
+# Install system dependencies including sox for qwen-tts and Python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sox \
@@ -15,7 +17,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     build-essential \
     gosu \
-    && rm -rf /var/lib/apt/lists/*
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install custom PyTorch wheel with gfx1151 support from TheRock project
+# These wheels are built specifically for RDNA 3.5 (gfx1151) GPUs
+RUN pip install --no-cache-dir --break-system-packages \
+    https://github.com/scottt/rocm-TheRock/releases/download/v6.5.0rc-pytorch/torch-2.7.0a0+gitbfd8155-cp312-cp312-linux_x86_64.whl
 
 # Create app user for security (use different UID since 1000 may be taken in base image)
 # Add to video and render groups for GPU access
@@ -27,9 +39,9 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (skip torch since it's pre-installed in base image)
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir \
+# Install Python dependencies
+RUN pip install --no-cache-dir --break-system-packages --upgrade pip \
+    && pip install --no-cache-dir --break-system-packages \
     soundfile \
     numpy \
     transformers \
@@ -54,7 +66,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
 # when flash_attn is installed but no GPU is available at import time.
 # qwen_tts will use standard attention as fallback.
-RUN pip install --no-cache-dir qwen-tts
+RUN pip install --no-cache-dir --break-system-packages qwen-tts
 
 # Copy application code
 COPY src/ ./src/
