@@ -8,7 +8,8 @@ FROM rocm/dev-ubuntu-24.04:6.4.1 AS base
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies including sox for qwen-tts and Python
+# Install system dependencies including sox for qwen-tts and Python 3.11
+# The gfx1151 PyTorch wheel is built for Python 3.11, not 3.12
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sox \
@@ -17,17 +18,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     build-essential \
     gosu \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev \
+    curl \
+    software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python
+
+# Install pip for Python 3.11
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 
 # Install custom PyTorch wheel with gfx1151 support from TheRock project
-# These wheels are built specifically for RDNA 3.5 (gfx1151) GPUs
-RUN pip install --no-cache-dir --break-system-packages \
-    https://github.com/scottt/rocm-TheRock/releases/download/v6.5.0rc-pytorch/torch-2.7.0a0+gitbfd8155-cp312-cp312-linux_x86_64.whl
+# These wheels are built specifically for RDNA 3.5 (gfx1151) GPUs - Python 3.11 only
+RUN pip install --no-cache-dir \
+    https://github.com/scottt/rocm-TheRock/releases/download/v6.5.0rc-pytorch/torch-2.7.0a0+gitbfd8155-cp311-cp311-linux_x86_64.whl
 
 # Create app user for security (use different UID since 1000 may be taken in base image)
 # Add to video and render groups for GPU access
@@ -40,8 +49,8 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --break-system-packages --upgrade pip \
-    && pip install --no-cache-dir --break-system-packages \
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
     soundfile \
     numpy \
     transformers \
@@ -66,7 +75,7 @@ RUN pip install --no-cache-dir --break-system-packages --upgrade pip \
 # Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
 # when flash_attn is installed but no GPU is available at import time.
 # qwen_tts will use standard attention as fallback.
-RUN pip install --no-cache-dir --break-system-packages qwen-tts
+RUN pip install --no-cache-dir qwen-tts
 
 # Copy application code
 COPY src/ ./src/
