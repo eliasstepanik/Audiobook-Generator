@@ -1,371 +1,306 @@
 # Audiobook Generator
 
-A powerful audiobook generator that combines Ollama's gpt-oss:120b for intelligent text processing and Qwen3-TTS for high-quality voice synthesis. Supports multi-speaker detection, automatic voice generation, and produces professional-quality audiobooks.
+A powerful multi-speaker audiobook generator that uses LLM-powered text analysis and Qwen3-TTS for high-quality voice synthesis. Supports multiple LLM providers (Ollama, OpenAI, Anthropic), automatic speaker detection, unique voice generation per character, and produces professional-quality audiobooks.
+
+[![Build Docker Images](https://github.com/YOUR_USERNAME/Audiobook-Generator/actions/workflows/docker-build.yml/badge.svg)](https://github.com/YOUR_USERNAME/Audiobook-Generator/actions/workflows/docker-build.yml)
 
 ## Features
 
 ### Core Features
-- **Intelligent Text Processing**: Uses Ollama gpt-oss-16k:120b to clean, normalize, and optimize text for natural speech
-- **Multi-Speaker Support**: Automatically detects characters/speakers and generates unique voices
-- **Batch Processing**: Handles large texts by processing in configurable chunks (16k context by default)
-- **High-Quality TTS**: Qwen3-TTS-12Hz-1.7B for natural-sounding voice synthesis
-- **Voice Design**: Automatically creates voices based on character descriptions
+- **Multi-Provider LLM Support**: Ollama, OpenAI (GPT-4o), and Anthropic (Claude) for text analysis
+- **Multi-Speaker Detection**: Automatically detects characters and generates unique voices
+- **Detailed Voice Control**: 9 voice parameters (gender, age, pitch, pace, tone, mood, energy, clarity, formality)
+- **Per-Segment Delivery Styles**: Same speaker can shift between tense/calm/excited/whispered
+- **High-Quality TTS**: Qwen3-TTS for natural-sounding voice synthesis
+- **Batch Processing**: Handles large texts by processing in configurable chunks
 - **Audio Combining**: Merges all segments into a single MP3 file
-- **Flexible Pipeline**: Enable/disable text processing and speaker detection as needed
 
-### API Features
+### API & Web Features
+- **Web Interface**: Clean, modern UI for creating and monitoring jobs
 - **REST API**: Full-featured FastAPI-based REST API
 - **Job Queue**: Background processing with SQLite-based job queue
+- **Real-time Progress**: Live progress tracking with detailed status messages
 - **Webhooks**: Automatic notifications when jobs complete
-- **File Upload**: Upload text files directly via API
-- **Download Endpoint**: Download completed audiobooks
-- **Job Management**: List, track, and cancel jobs
-- **Auto Documentation**: Interactive Swagger UI and ReDoc
+- **Job Titles**: Name your audiobooks for easy identification
 
-## Installation
-
-### Prerequisites
-
-- Python 3.9+
-- CUDA-compatible GPU (recommended for TTS)
-- Ollama server running with gpt-oss-16k:120b model
-- FFmpeg (for audio processing)
-
-### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Optional: Flash Attention
-
-For faster TTS inference, install Flash Attention 2:
-
-```bash
-pip install flash-attn
-```
+### Deployment
+- **Docker Support**: NVIDIA CUDA and AMD ROCm images available
+- **GitHub Actions**: Automated builds and publishing to GitHub Container Registry
+- **YAML Configuration**: Simple `config.yml` for all settings
 
 ## Quick Start
 
-### Option 1: Web Interface (Easiest)
+### Option 1: Docker (Recommended)
 
-#### 1. Start the Server
+#### NVIDIA GPU
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/YOUR_USERNAME/audiobook-generator:latest
 
+# Or use docker-compose
+docker-compose up -d
+```
+
+#### AMD GPU (ROCm)
+```bash
+docker pull ghcr.io/YOUR_USERNAME/audiobook-generator:rocm
+
+# Or use docker-compose
+docker-compose -f docker-compose.rocm.yml up -d
+```
+
+### Option 2: Local Installation
+
+#### Prerequisites
+- Python 3.10+
+- CUDA-compatible GPU (recommended) or AMD GPU with ROCm
+- FFmpeg (for audio processing)
+
+#### Install
+```bash
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/Audiobook-Generator.git
+cd Audiobook-Generator
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or: venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy and edit config
+cp config.sample.yml config.yml
+# Edit config.yml with your LLM provider settings
+```
+
+#### Configure LLM Provider
+
+Edit `config.yml`:
+
+```yaml
+# For OpenAI
+llm:
+  provider: openai
+  model: gpt-4o
+  base_url: https://api.openai.com/v1
+  api_key: sk-your-api-key
+
+# For Anthropic
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  api_key: sk-ant-your-api-key
+
+# For Ollama (local)
+llm:
+  provider: ollama
+  model: llama3:70b
+  base_url: http://localhost:11434/v1
+```
+
+#### Run
 ```bash
 python run_server.py
 ```
 
-#### 2. Open Web Interface
+Open http://localhost:8000 in your browser.
 
-Open your browser and navigate to:
-```
-http://localhost:8000
-```
+## Web Interface
 
-#### 3. Use the Web Interface
+The web interface provides:
+- **Text Input**: Paste text directly or upload files
+- **Title Input**: Name your audiobooks
+- **Processing Options**: Enable/disable text processing and speaker detection
+- **Real-time Progress**: Watch jobs process with detailed status
+- **One-click Download**: Download completed audiobooks
 
-- **Create Jobs**: Enter text or upload files directly in the browser
-- **Monitor Progress**: See real-time job status and progress bars
-- **Download**: Click download button when jobs complete
-- **View Statistics**: Dashboard shows pending, processing, and completed jobs
+## REST API
 
-Features:
-- 📝 Text input or file upload
-- 📊 Real-time job monitoring
-- ⬇️ One-click downloads
-- 🔄 Auto-refresh every 5 seconds
-- 🎨 Clean, modern interface
-
-### Option 2: REST API
-
-#### 1. Start the Server
-
+### Create Job with Text
 ```bash
-python run_server.py
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Your story text here...",
+    "title": "My Audiobook",
+    "enable_text_processing": true,
+    "enable_speaker_detection": true
+  }'
 ```
 
-This starts both the API server (port 8000) and background worker.
-
-#### 2. Create a Job
-
+### Upload File
 ```bash
 curl -X POST http://localhost:8000/jobs/upload \
-  -F "file=@data/input/sample.txt" \
-  -F "enable_text_processing=true" \
-  -F "enable_speaker_detection=true" \
-  -F "webhook_url=https://your-server.com/webhook"
+  -F "file=@story.txt" \
+  -F "title=My Story" \
+  -F "enable_speaker_detection=true"
 ```
 
-#### 3. Check Status
-
+### Check Status
 ```bash
 curl http://localhost:8000/jobs/{job_id}
 ```
 
-#### 4. Download Audiobook
-
+### Download Audiobook
 ```bash
 curl -O http://localhost:8000/jobs/{job_id}/download
 ```
 
-See [API.md](API.md) for complete API documentation.
+### API Documentation
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
 
-### Option 3: Direct Python Usage
+## Configuration
 
-#### 1. Prepare Your Text File
+### Full config.yml Example
 
-Place your text file in `data/input/`:
+```yaml
+# Application Settings
+app:
+  host: 0.0.0.0
+  port: 8000
+  debug: false
+
+# LLM Settings
+llm:
+  provider: openai          # ollama | openai | anthropic
+  model: gpt-4o
+  base_url: https://api.openai.com/v1
+  api_key: your-api-key
+  timeout: 600
+  temperature: 0.1
+
+# TTS Settings
+tts:
+  device: null              # Auto-detect (cuda:0 or cpu)
+  dtype: bfloat16
+  use_flash_attention: null # Auto-detect
+
+# Database
+database:
+  url: sqlite:///audiobook_jobs.db
+```
+
+### Environment Variables
+
+All config options can be overridden via environment variables:
+```bash
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=sk-...
+TTS_DEVICE=cuda:0
+```
+
+## Docker Deployment
+
+### Build Locally
+
+```bash
+# NVIDIA CUDA
+docker build -t audiobook-generator .
+
+# AMD ROCm
+docker build -f Dockerfile.rocm -t audiobook-generator-rocm .
+```
+
+### Run with Docker
+
+```bash
+# NVIDIA
+docker run --gpus all -p 8000:8000 \
+  -v ./data:/app/data \
+  -v ./config.yml:/app/config.yml:ro \
+  audiobook-generator
+
+# AMD
+docker run --device=/dev/kfd --device=/dev/dri \
+  -p 8000:8000 \
+  -v ./data:/app/data \
+  -v ./config.yml:/app/config.yml:ro \
+  audiobook-generator-rocm
+```
+
+### Docker Compose
+
+```bash
+# NVIDIA
+docker-compose up -d
+
+# AMD ROCm
+docker-compose -f docker-compose.rocm.yml up -d
+```
+
+## Pipeline Overview
+
+1. **Text Batching**: Splits text into manageable chunks
+2. **LLM Processing**: Cleans and optimizes text for TTS (optional)
+3. **Speaker Detection**: Identifies characters with detailed voice profiles
+4. **Text Splitting**: Assigns segments to speakers with delivery styles
+5. **Voice Generation**: Creates unique TTS voice per speaker
+6. **Audio Synthesis**: Generates audio for each segment
+7. **Audio Combining**: Merges all segments into final MP3
+
+## Output Structure
 
 ```
-data/input/my_book.txt
+data/output/{job_id}/
+├── audiobook.mp3              # Final combined audiobook
+├── metadata.json              # Generation metadata
+├── processed_text.txt         # LLM-processed text
+├── detected_speakers.json     # Speaker information
+└── segments/                  # Individual audio segments
+    ├── voice_narrator.wav
+    ├── voice_character1.wav
+    ├── segment_0000.wav
+    └── ...
 ```
 
-#### 2. Run the Generator
+## Python API
 
 ```python
 from audiobook_generator import MultiSpeakerAudiobookGenerator
 
 generator = MultiSpeakerAudiobookGenerator(
-    ollama_model="gpt-oss-16k:120b",
-    ollama_base_url="https://192.168.178.166/v1",
-    max_chars_per_batch=16000,
+    llm_provider="openai",
+    llm_model="gpt-4o",
+    llm_api_key="sk-...",
     tts_device="cuda:0",
     enable_text_processing=True,
     enable_speaker_detection=True,
 )
 
 metadata = generator.generate(
-    input_file="data/input/my_book.txt",
-    output_dir="data/output/my_audiobook",
+    input_file="story.txt",
+    output_dir="output/my_audiobook",
     output_filename="audiobook.mp3",
-    save_intermediate=True,
-    tts_batch_size=5,
 )
-```
-
-#### 3. Get Your Audiobook
-
-The final audiobook will be at:
-```
-data/output/my_audiobook/audiobook.mp3
-```
-
-## API Server
-
-### Running the Server
-
-```bash
-# Run both API server and worker
-python run_server.py
-
-# Or run separately:
-# Terminal 1: API Server
-uvicorn audiobook_generator.api:app --host 0.0.0.0 --port 8000
-
-# Terminal 2: Background Worker
-python -c "from audiobook_generator.worker import AudiobookWorker; from audiobook_generator.job_queue import JobQueue; from audiobook_generator.database import get_database; worker = AudiobookWorker(JobQueue(get_database())); worker.run()"
-```
-
-### API Endpoints
-
-- `POST /jobs` - Create new job with JSON
-- `POST /jobs/upload` - Upload text file and create job
-- `GET /jobs` - List all jobs
-- `GET /jobs/{job_id}` - Get job details
-- `GET /jobs/{job_id}/download` - Download audiobook
-- `DELETE /jobs/{job_id}` - Cancel/delete job
-- `GET /stats` - Get service statistics
-- `GET /health` - Health check
-
-### Interactive Documentation
-
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-### Webhooks
-
-Configure webhook URLs to receive notifications when jobs complete:
-
-```json
-{
-  "job_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "completed",
-  "timestamp": 1706616000.123
-}
-```
-
-See [API.md](API.md) for complete webhook documentation.
-
-## Pipeline Overview
-
-The generator follows a 7-step pipeline:
-
-1. **Read and Batch Text**: Splits text into 16k character chunks
-2. **Process Through Ollama**: Cleans and optimizes text for TTS
-3. **Detect Speakers**: Identifies characters and their voice characteristics
-4. **Generate Voices**: Creates unique voice for each speaker using Qwen3-TTS VoiceDesign
-5. **Assign Speakers**: Maps text segments to appropriate voices
-6. **Synthesize Audio**: Generates audio per speaker in batches
-7. **Combine Audio**: Merges all segments into single MP3
-
-## Configuration
-
-### Ollama Settings
-
-```python
-ollama_model="gpt-oss-16k:120b"          # Model name
-ollama_base_url="https://192.168.178.166/v1"  # OpenAI-compatible API endpoint
-max_chars_per_batch=16000                # Characters per batch (context limit)
-```
-
-### TTS Settings
-
-```python
-tts_device="cuda:0"      # Device: "cuda:0", "cuda:1", or "cpu"
-tts_dtype="bfloat16"     # Data type: "bfloat16" or "float32"
-tts_batch_size=5         # Segments to process at once per speaker
-```
-
-### Processing Options
-
-```python
-enable_text_processing=True    # Use Ollama to clean/optimize text
-enable_speaker_detection=True  # Detect and use multiple speakers
-save_intermediate=True         # Save intermediate files for debugging
-```
-
-## Usage Examples
-
-### Multi-Speaker Audiobook (Full Pipeline)
-
-```python
-generator = MultiSpeakerAudiobookGenerator(
-    enable_text_processing=True,
-    enable_speaker_detection=True,
-)
-
-generator.generate(
-    input_file="data/input/novel.txt",
-    output_dir="data/output/novel",
-    output_filename="novel.mp3",
-)
-```
-
-### Single Narrator
-
-```python
-generator = MultiSpeakerAudiobookGenerator(
-    enable_text_processing=True,
-    enable_speaker_detection=False,  # Single voice
-)
-
-generator.generate(
-    input_file="data/input/essay.txt",
-    output_dir="data/output/essay",
-)
-```
-
-### Direct TTS (No Processing)
-
-```python
-generator = MultiSpeakerAudiobookGenerator(
-    enable_text_processing=False,  # Skip Ollama processing
-    enable_speaker_detection=False,
-)
-
-generator.generate(
-    input_file="data/input/clean_text.txt",
-    output_dir="data/output/fast",
-)
-```
-
-## Output Structure
-
-```
-output_dir/
-├── audiobook.mp3              # Final combined audiobook
-├── metadata.json              # Generation metadata
-├── processed_text.txt         # Ollama-processed text (if enabled)
-├── detected_speakers.json     # Speaker information (if enabled)
-└── segments/                  # Individual audio segments
-    ├── voice_narrator.wav
-    ├── voice_character1.wav
-    ├── segment_0000_narrator.wav
-    ├── segment_0001_narrator.wav
-    └── ...
-```
-
-## Advanced Configuration
-
-### Environment Variables
-
-Create a `.env` file:
-
-```env
-# Ollama
-OLLAMA_MODEL=gpt-oss-16k:120b
-OLLAMA_BASE_URL=https://192.168.178.166/v1
-OLLAMA_TEMPERATURE=0.3
-
-# TTS
-TTS_DEVICE=cuda:0
-TTS_DTYPE=bfloat16
-TTS_BATCH_SIZE=5
-
-# Processing
-MAX_CHARS_PER_BATCH=16000
-ENABLE_OLLAMA=true
-```
-
-Load configuration:
-
-```python
-from audiobook_generator import load_config
-
-config = load_config(".env")
-```
-
-### Custom Voice Characteristics
-
-The LLM automatically generates voice characteristics, but you can customize:
-
-```python
-# Example detected speaker
-{
-  "id": "detective",
-  "name": "Detective Morrison",
-  "description": "Hard-boiled detective",
-  "voice_characteristics": "Male, 45 years old, gravelly voice, world-weary tone, Brooklyn accent"
-}
 ```
 
 ## Performance Tips
 
-1. **GPU Memory**: Use `tts_dtype="bfloat16"` to reduce memory usage
-2. **Batch Size**: Increase `tts_batch_size` for faster processing (if GPU memory allows)
-3. **Context Size**: Adjust `max_chars_per_batch` based on Ollama model capacity
-4. **Skip Processing**: Disable `enable_text_processing` for pre-cleaned text
-5. **Single Speaker**: Disable `enable_speaker_detection` for faster generation
+1. **GPU**: Use CUDA or ROCm for 10x faster TTS
+2. **Flash Attention**: Install `flash-attn` for faster inference
+3. **Skip Processing**: Disable `enable_text_processing` for clean text
+4. **Single Speaker**: Disable `enable_speaker_detection` for narration-only
 
 ## Troubleshooting
 
-### SSL Certificate Errors
-
-If you get SSL errors with Ollama:
-- The client uses `verify=False` for HTTPS requests
-- Ensure your Ollama endpoint is correct
-
 ### Out of Memory
+- Use `tts_dtype: float32` instead of `bfloat16`
+- Reduce batch size in config
+- Use CPU: `tts_device: cpu`
 
-- Reduce `tts_batch_size`
-- Use `tts_dtype="float32"` instead of `bfloat16`
-- Process on CPU: `tts_device="cpu"`
+### LLM Returns Empty Text
+- The system automatically falls back to original text
+- Check your API key and model access
+- Try a different model
 
 ### Speaker Detection Issues
-
 - Ensure text has clear dialogue markers (quotes)
-- Check `detected_speakers.json` to see what was detected
-- Fallback: Use single speaker mode
+- Check `detected_speakers.json` for results
+- Fallback: Disable speaker detection for single narrator
 
 ## License
 
@@ -373,6 +308,7 @@ MIT License
 
 ## Credits
 
-- **Ollama**: Text processing with gpt-oss-16k:120b
 - **Qwen3-TTS**: Voice synthesis by Alibaba
-- **Pydub**: Audio processing and combining
+- **OpenAI/Anthropic/Ollama**: LLM providers for text analysis
+- **FastAPI**: Web framework
+- **Pydub**: Audio processing
