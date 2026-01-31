@@ -35,8 +35,8 @@ services:
     # Uncomment to run as root for debugging GPU access issues:
     # user: root
     environment:
-      # Uncomment TTS_DEVICE=cpu to force CPU mode (required for unsupported GPUs like gfx1151)
-      # - TTS_DEVICE=cpu
+      # Force CPU mode (required for unsupported GPUs like gfx1151)
+      - TTS_DEVICE=cpu
       # Override HSA version for different GPU architectures:
       # - HSA_OVERRIDE_GFX_VERSION=11.0.0  # gfx1100 (RX 7900)
       # - HSA_OVERRIDE_GFX_VERSION=10.3.0  # gfx1030 (RX 6800/6900)
