@@ -48,6 +48,11 @@
                 <div class="tab-content active" id="text-tab">
                     <form id="text-form">
                         <div class="form-group">
+                            <label for="text-title">Audiobook Title</label>
+                            <input type="text" id="text-title" placeholder="My Audiobook" maxlength="200">
+                        </div>
+                        
+                        <div class="form-group">
                             <label for="text-input">Text Content</label>
                             <textarea id="text-input" rows="8" placeholder="Enter or paste your text here..." required></textarea>
                         </div>
@@ -83,6 +88,11 @@
                 <!-- File Upload Tab -->
                 <div class="tab-content" id="file-tab">
                     <form id="file-form">
+                        <div class="form-group">
+                            <label for="file-title">Audiobook Title</label>
+                            <input type="text" id="file-title" placeholder="My Audiobook (or leave blank to use filename)" maxlength="200">
+                        </div>
+                        
                         <div class="form-group">
                             <label for="file-input">Upload Text File</label>
                             <input type="file" id="file-input" accept=".txt,.md" required>

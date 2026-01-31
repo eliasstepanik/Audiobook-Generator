@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  audiobook-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: audiobook-generator
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data and config
+      - ./data:/app/data
+      - ./config.yml:/app/config.yml:ro
+      # Model cache (prevents re-downloading models)
+      - audiobook-models:/home/appuser/.cache
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  audiobook-models:
+    name: audiobook-generator-models

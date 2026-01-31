@@ -8,6 +8,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from audiobook_generator.config import load_config
 from audiobook_generator.database import get_database
 from audiobook_generator.job_queue import JobQueue
 from audiobook_generator.worker_with_progress import AudiobookWorkerWithProgress
@@ -19,6 +20,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Load configuration from config.yml / env vars / defaults
+config = load_config()
+
 
 def run_worker():
     """Run the background worker."""
@@ -28,10 +32,12 @@ def run_worker():
     worker = AudiobookWorkerWithProgress(
         job_queue=job_queue,
         output_base_dir="./data/output",
-        ollama_model="gpt-oss-16k:120b",
-        ollama_base_url="http://192.168.178.166:11434/v1",
-        tts_device="cuda:0",
-        tts_dtype="bfloat16",
+        llm_provider=config.llm.provider,
+        llm_model=config.llm.model,
+        llm_base_url=config.llm.base_url,
+        llm_api_key=config.llm.api_key,
+        tts_device=config.tts.device,
+        tts_dtype=config.tts.dtype,
         poll_interval=5,
     )
 
@@ -43,22 +49,21 @@ def run_api():
     import uvicorn
     from audiobook_generator.api import app
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host=config.app.host, port=config.app.port, log_level="info")
 
 
 def main():
     """Run both API server and worker."""
     logger.info("Starting Audiobook Generator Service")
-    logger.info("")
 
     # Verify and download models
     logger.info("Verifying TTS models...")
     from audiobook_generator.model_downloader import verify_models_on_startup
 
     models_ready = verify_models_on_startup(
-        device="cuda:0",
-        dtype="bfloat16",
-        skip_verification=False,  # Set to True to skip model check
+        device=config.tts.device or "cuda:0",
+        dtype=config.tts.dtype,
+        skip_verification=False,
     )
 
     if not models_ready:
@@ -72,7 +77,7 @@ def main():
     logger.info("Worker thread started")
 
     # Run API in main thread
-    logger.info("Starting API server on http://0.0.0.0:8000")
+    logger.info(f"Starting API server on http://{config.app.host}:{config.app.port}")
     run_api()
 
 

@@ -7,7 +7,7 @@ from tqdm import tqdm
 import json
 
 from .text_processor import TextProcessor
-from .ollama_client import OllamaClient
+from .llm_client import LLMClient
 from .speaker_detector import SpeakerDetector
 from .tts_synthesizer import TTSSynthesizer, VoiceConfig
 from .audio_combiner import AudioCombiner
@@ -20,26 +20,39 @@ class MultiSpeakerAudiobookGenerator:
 
     def __init__(
         self,
-        ollama_model: str = "gpt-oss-16k:120b",
-        ollama_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_provider: str = "ollama",
+        llm_model: str = "gpt-oss:20b",
+        llm_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_api_key: Optional[str] = None,
         max_chars_per_batch: int = 16000,
         tts_device: str = "cuda:0",
         tts_dtype: str = "bfloat16",
         enable_text_processing: bool = True,
         enable_speaker_detection: bool = True,
+        # Backward compat
+        ollama_model: Optional[str] = None,
+        ollama_base_url: Optional[str] = None,
     ):
         """
         Initialize multi-speaker audiobook generator.
 
         Args:
-            ollama_model: Ollama model name (default: gpt-oss-16k:120b)
-            ollama_base_url: Ollama API base URL
+            llm_provider: LLM provider (ollama, openai, anthropic)
+            llm_model: Model name for the provider
+            llm_base_url: API base URL
+            llm_api_key: API key (required for openai/anthropic)
             max_chars_per_batch: Maximum characters per batch
             tts_device: TTS device (cuda:0, cpu, etc.)
             tts_dtype: TTS dtype (bfloat16, float32, etc.)
-            enable_text_processing: Whether to process text through Ollama
+            enable_text_processing: Whether to process text through LLM
             enable_speaker_detection: Whether to detect and use multiple speakers
         """
+        # Backward compat: old param names override new ones
+        if ollama_model:
+            llm_model = ollama_model
+        if ollama_base_url:
+            llm_base_url = ollama_base_url
+
         self.enable_text_processing = enable_text_processing
         self.enable_speaker_detection = enable_speaker_detection
 
@@ -47,16 +60,19 @@ class MultiSpeakerAudiobookGenerator:
         self.text_processor = TextProcessor(max_chars=max_chars_per_batch)
 
         if enable_text_processing:
-            self.ollama_client = OllamaClient(
-                model=ollama_model, base_url=ollama_base_url
+            self.llm_client = LLMClient(
+                provider=llm_provider,
+                model=llm_model,
+                base_url=llm_base_url,
+                api_key=llm_api_key,
             )
 
             if enable_speaker_detection:
-                self.speaker_detector = SpeakerDetector(self.ollama_client)
+                self.speaker_detector = SpeakerDetector(self.llm_client)
             else:
                 self.speaker_detector = None
         else:
-            self.ollama_client = None
+            self.llm_client = None
             self.speaker_detector = None
 
         # TTS components (initialized per speaker)
@@ -122,13 +138,13 @@ class MultiSpeakerAudiobookGenerator:
         batches = self.text_processor.process_file(input_file)
         logger.info(f"✓ Created {len(batches)} batches\n")
 
-        # STEP 2: Process through Ollama
+        # STEP 2: Process through LLM
         processed_texts = []
-        if self.enable_text_processing and self.ollama_client:
-            logger.info("STEP 2: Processing text through Ollama...")
+        if self.enable_text_processing and self.llm_client:
+            logger.info("STEP 2: Processing text through LLM...")
 
             for batch in tqdm(batches, desc="Processing batches"):
-                result = self.ollama_client.process_text(
+                result = self.llm_client.process_text(
                     text=batch.text, batch_index=batch.batch_index
                 )
                 processed_texts.append(result.processed_text)

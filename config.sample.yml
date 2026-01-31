@@ -21,13 +21,32 @@ tts:
   default_language: English
   batch_size: 1000
 
-# Ollama LLM Settings
-ollama:
-  model: gpt-oss-16k:120b
-  base_url: http://192.168.178.166:11434/v1
-  timeout: 300
+# LLM Settings
+# Supported providers: ollama, openai, anthropic
+llm:
+  provider: ollama                              # ollama | openai | anthropic
+  model: gpt-oss:20b                            # Model name for the provider
+  base_url: http://192.168.178.166:11434/v1     # Required for ollama, optional for openai/anthropic
+  api_key: null                                 # Required for openai and anthropic
+  timeout: 600
   max_tokens: 2000
   temperature: 0.1
+
+  # --- Provider Examples ---
+  # Ollama (default):
+  #   provider: ollama
+  #   model: gpt-oss:20b
+  #   base_url: http://localhost:11434/v1
+  #
+  # OpenAI:
+  #   provider: openai
+  #   model: gpt-4o
+  #   api_key: sk-...
+  #
+  # Anthropic:
+  #   provider: anthropic
+  #   model: claude-sonnet-4-20250514
+  #   api_key: sk-ant-...
 
 # Text Processing Settings
 text_processing:

@@ -1,4 +1,4 @@
-"""Ollama client for processing text batches with gpt-oss:120b."""
+"""Ollama client for processing text batches with gpt-oss:20b."""
 
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -19,14 +19,14 @@ class ProcessingResult:
 
 
 class OllamaClient:
-    """Client for interacting with Ollama gpt-oss:120b model via OpenAI-compatible API."""
+    """Client for interacting with Ollama gpt-oss:20b model via OpenAI-compatible API."""
 
     def __init__(
         self,
-        model: str = "gpt-oss-16k:120b",
+        model: str = "gpt-oss:20b",
         base_url: str = "http://192.168.178.166:11434/v1",
         system_prompt: Optional[str] = None,
-        timeout: int = 300,
+        timeout: int = 600,
     ):
         """
         Initialize Ollama client.
@@ -51,17 +51,22 @@ class OllamaClient:
 
     def _default_system_prompt(self) -> str:
         """Default system prompt for audiobook processing."""
-        return """You are an expert text processor for audiobook generation. Your task is to:
+        return """You are an expert text processor for audiobook generation.
 
-1. Clean and normalize the text for natural speech synthesis
-2. Fix obvious typos and formatting issues
-3. Expand abbreviations that would sound awkward when spoken
-4. Add appropriate punctuation for natural pauses
-5. Preserve the author's voice and style
-6. Keep the meaning exactly the same
-7. Return ONLY the processed text, no explanations or metadata
+CRITICAL RULES:
+- Return the COMPLETE text with ALL sentences preserved
+- DO NOT summarize, shorten, or remove ANY content
+- DO NOT add explanations, comments, or metadata
+- The output must be approximately the SAME LENGTH as the input
 
-Process the text to sound natural when read aloud."""
+Your task:
+1. Fix obvious typos and formatting issues
+2. Expand abbreviations (e.g. "Dr." -> "Doctor", "Mr." -> "Mister")
+3. Convert numbers to words (e.g. "3" -> "three")
+4. Add appropriate punctuation for natural speech pauses
+5. Preserve the author's voice, style, and ALL content exactly
+
+Return ONLY the processed text. Nothing else."""
 
     def _verify_connection(self) -> None:
         """Verify that the API endpoint is accessible."""

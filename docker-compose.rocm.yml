@@ -1,0 +1,48 @@
+version: '3.8'
+
+# Docker Compose for AMD GPU (ROCm) support
+# Usage: docker-compose -f docker-compose.rocm.yml up -d
+
+services:
+  audiobook-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocm
+    container_name: audiobook-generator-rocm
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data and config
+      - ./data:/app/data
+      - ./config.yml:/app/config.yml:ro
+      # Model cache (prevents re-downloading models)
+      - audiobook-models-rocm:/home/appuser/.cache
+    devices:
+      # Pass through AMD GPU
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
+    environment:
+      # ROCm environment variables
+      - HSA_OVERRIDE_GFX_VERSION=10.3.0
+      - PYTORCH_ROCM_ARCH=gfx1030
+      # Adjust for your GPU architecture:
+      # gfx900  - Vega 10 (RX Vega 56/64, MI25)
+      # gfx906  - Vega 20 (MI50/MI60, Radeon VII)
+      # gfx908  - MI100
+      # gfx90a  - MI200 series
+      # gfx1030 - RDNA 2 (RX 6800/6900)
+      # gfx1100 - RDNA 3 (RX 7900)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  audiobook-models-rocm:
+    name: audiobook-generator-models-rocm

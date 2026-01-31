@@ -42,6 +42,7 @@ function initializeForms() {
     document.getElementById('text-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
+        const title = document.getElementById('text-title').value;
         const text = document.getElementById('text-input').value;
         const enableTextProcessing = document.getElementById('text-processing').checked;
         const enableSpeakerDetection = document.getElementById('speaker-detection').checked;
@@ -55,6 +56,7 @@ function initializeForms() {
                 },
                 body: JSON.stringify({
                     text,
+                    title: title || null,
                     enable_text_processing: enableTextProcessing,
                     enable_speaker_detection: enableSpeakerDetection,
                     webhook_url: webhookUrl || null,
@@ -77,6 +79,7 @@ function initializeForms() {
     document.getElementById('file-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
+        const title = document.getElementById('file-title').value;
         const fileInput = document.getElementById('file-input');
         const file = fileInput.files[0];
         const enableTextProcessing = document.getElementById('file-text-processing').checked;
@@ -85,6 +88,9 @@ function initializeForms() {
         
         const formData = new FormData();
         formData.append('file', file);
+        if (title) {
+            formData.append('title', title);
+        }
         formData.append('enable_text_processing', enableTextProcessing);
         formData.append('enable_speaker_detection', enableSpeakerDetection);
         if (webhookUrl) {
@@ -225,7 +231,7 @@ function renderJob(job) {
         <div class="job-item">
             <div class="job-header">
                 <div>
-                    <div class="job-title">${escapeHtml(job.input_filename || 'Untitled Audiobook')}</div>
+                    <div class="job-title">${escapeHtml(job.title || job.input_filename || 'Untitled Audiobook')}</div>
                     <div class="job-id">ID: ${job.job_id}</div>
                 </div>
                 <div class="job-status ${statusClass}">${job.status}</div>

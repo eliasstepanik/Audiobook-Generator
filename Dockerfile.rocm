@@ -1,0 +1,72 @@
+# Audiobook Generator - ROCm (AMD GPU) Docker build
+# Supports AMD GPU acceleration for TTS via ROCm
+
+FROM rocm/pytorch:rocm6.0_ubuntu22.04_py3.10_pytorch_2.1.1 AS base
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user for security
+RUN useradd -m -u 1000 appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies (skip torch since it's pre-installed in base image)
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+    soundfile>=0.12.1 \
+    numpy>=1.24.0 \
+    qwen-tts>=0.0.5 \
+    transformers>=4.30.0 \
+    accelerate>=0.20.0 \
+    requests>=2.31.0 \
+    pydub>=0.25.1 \
+    fastapi>=0.104.0 \
+    "uvicorn[standard]>=0.24.0" \
+    python-multipart>=0.0.6 \
+    sqlalchemy>=2.0.0 \
+    aiosqlite>=0.19.0 \
+    pyyaml>=6.0 \
+    pydantic>=2.0.0 \
+    python-dotenv>=1.0.0 \
+    tqdm>=4.65.0
+
+# Copy application code
+COPY src/ ./src/
+COPY frontend/ ./frontend/
+COPY run_server.py .
+COPY config.sample.yml .
+
+# Create data directories
+RUN mkdir -p /app/data/input /app/data/output /app/data/temp \
+    && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+# ROCm specific
+ENV HSA_OVERRIDE_GFX_VERSION=10.3.0
+ENV PYTORCH_ROCM_ARCH=gfx1030
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/stats')" || exit 1
+
+# Default command
+CMD ["python", "run_server.py"]

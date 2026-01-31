@@ -22,11 +22,16 @@ class AudiobookWorkerWithProgress:
         self,
         job_queue: JobQueue,
         output_base_dir: str = "./data/output",
-        ollama_model: str = "gpt-oss-16k:120b",
-        ollama_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_provider: str = "ollama",
+        llm_model: str = "gpt-oss:20b",
+        llm_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_api_key: Optional[str] = None,
         tts_device: str = "cuda:0",
         tts_dtype: str = "bfloat16",
         poll_interval: int = 5,
+        # Backward compat
+        ollama_model: Optional[str] = None,
+        ollama_base_url: Optional[str] = None,
     ):
         """
         Initialize worker.
@@ -34,8 +39,10 @@ class AudiobookWorkerWithProgress:
         Args:
             job_queue: Job queue instance
             output_base_dir: Base directory for output files
-            ollama_model: Ollama model name
-            ollama_base_url: Ollama API base URL
+            llm_provider: LLM provider ("ollama", "openai", "anthropic")
+            llm_model: LLM model name
+            llm_base_url: LLM API base URL
+            llm_api_key: API key (required for openai/anthropic)
             tts_device: TTS device
             tts_dtype: TTS dtype
             poll_interval: Seconds to wait between polling for jobs
@@ -44,8 +51,11 @@ class AudiobookWorkerWithProgress:
         self.output_base_dir = Path(output_base_dir)
         self.output_base_dir.mkdir(parents=True, exist_ok=True)
 
-        self.ollama_model = ollama_model
-        self.ollama_base_url = ollama_base_url
+        # LLM config (with backward compat for ollama_model/ollama_base_url)
+        self.llm_provider = llm_provider
+        self.llm_model = ollama_model or llm_model
+        self.llm_base_url = ollama_base_url or llm_base_url
+        self.llm_api_key = llm_api_key
         self.tts_device = tts_device
         self.tts_dtype = tts_dtype
         self.poll_interval = poll_interval
@@ -53,7 +63,9 @@ class AudiobookWorkerWithProgress:
         self.running = False
         self.current_job_id = None
 
-        logger.info("AudiobookWorkerWithProgress initialized")
+        logger.info(
+            f"AudiobookWorkerWithProgress initialized (LLM: {self.llm_provider}/{self.llm_model})"
+        )
 
     def update_progress(
         self, progress: int, message: str, details: Optional[dict] = None
@@ -134,7 +146,7 @@ class AudiobookWorkerWithProgress:
             self.update_progress(5, "Loading models...")
 
             from .text_processor import TextProcessor
-            from .ollama_client import OllamaClient
+            from .llm_client import LLMClient
             from .speaker_detector import SpeakerDetector
             from .tts_synthesizer import TTSSynthesizer, VoiceConfig
             from .audio_combiner import AudioCombiner
@@ -147,23 +159,33 @@ class AudiobookWorkerWithProgress:
             total_batches = len(batches)
             self.update_progress(15, f"Created {total_batches} text batches")
 
-            # Step 2: Process through Ollama
+            # Step 2: Process through LLM
             processed_texts = []
-            if job.enable_text_processing:
-                ollama_client = OllamaClient(
-                    model=self.ollama_model, base_url=self.ollama_base_url
-                )
+            llm_client = LLMClient(
+                provider=self.llm_provider,
+                model=self.llm_model,
+                base_url=self.llm_base_url,
+                api_key=self.llm_api_key,
+            )
 
+            if job.enable_text_processing:
                 for idx, batch in enumerate(batches):
                     progress = 15 + int((idx / total_batches) * 30)
                     self.update_progress(
                         progress,
-                        f"Processing batch {idx + 1}/{total_batches} through Ollama...",
+                        f"Processing batch {idx + 1}/{total_batches} through LLM...",
                     )
-                    result = ollama_client.process_text(
+                    result = llm_client.process_text(
                         text=batch.text, batch_index=batch.batch_index
                     )
-                    processed_texts.append(result.processed_text)
+                    # Safeguard: if LLM returns empty or drastically shorter, use original
+                    if len(result.processed_text) < len(batch.text) * 0.5:
+                        logger.warning(
+                            f"LLM returned much shorter text ({len(result.processed_text)} vs {len(batch.text)} chars), using original"
+                        )
+                        processed_texts.append(batch.text)
+                    else:
+                        processed_texts.append(result.processed_text)
 
                 self.update_progress(
                     45, f"Text processing complete ({total_batches} batches)"
@@ -176,51 +198,75 @@ class AudiobookWorkerWithProgress:
 
             # Step 3: Detect speakers
             detected_speakers = []
+            speaker_detector = None
+
             if job.enable_speaker_detection:
-                self.update_progress(50, "Detecting speakers...")
-                speaker_detector = (
-                    SpeakerDetector(ollama_client)
-                    if job.enable_text_processing
-                    else None
+                self.update_progress(48, "Detecting speakers...")
+
+                speaker_detector = SpeakerDetector(llm_client)
+                detected_speakers = speaker_detector.detect_speakers(
+                    full_processed_text
                 )
 
-                if speaker_detector:
-                    detected_speakers = speaker_detector.detect_speakers(
-                        full_processed_text
-                    )
-                    self.update_progress(
-                        55, f"Detected {len(detected_speakers)} speakers"
-                    )
-                else:
-                    detected_speakers = [
-                        {
-                            "id": "narrator",
-                            "name": "Narrator",
-                            "description": "Main narrative voice",
-                            "voice_characteristics": "Male, 35 years old, warm narrator voice",
-                        }
-                    ]
-                    self.update_progress(55, "Using single narrator")
+                speaker_names = [s["name"] for s in detected_speakers]
+                self.update_progress(
+                    52,
+                    f"Detected {len(detected_speakers)} speakers: {', '.join(speaker_names)}",
+                )
             else:
                 detected_speakers = [
                     {
                         "id": "narrator",
                         "name": "Narrator",
                         "description": "Main narrative voice",
-                        "voice_characteristics": "Male, 35 years old, warm narrator voice",
+                        "voice_characteristics": "Male, 35 years old, normal pitch, normal pace, calm tone, clear articulation, warm and engaging narrator voice",
                     }
                 ]
-                self.update_progress(55, "Using single narrator (detection disabled)")
+                self.update_progress(52, "Using single narrator (detection disabled)")
 
-            # Step 4: Generate voices with detailed voice control
+            # Step 4: Split text into per-speaker segments
+            self.update_progress(54, "Splitting text into speaker segments...")
+
+            if (
+                job.enable_speaker_detection
+                and speaker_detector
+                and len(detected_speakers) > 1
+            ):
+                # Use LLM to split text into segments by speaker
+                segments = speaker_detector.split_text_into_segments(
+                    full_processed_text, detected_speakers
+                )
+            else:
+                # Single narrator - whole text is one segment
+                segments = [
+                    {
+                        "text": full_processed_text,
+                        "speaker_id": "narrator",
+                        "speaker_name": "Narrator",
+                        "delivery": "",
+                        "segment_index": 0,
+                    }
+                ]
+
+            total_segments = len(segments)
+            unique_speakers = list(set(s["speaker_id"] for s in segments))
+            self.update_progress(
+                56,
+                f"Split into {total_segments} segments across {len(unique_speakers)} speakers",
+            )
+
+            # Step 5: Generate a unique voice for each speaker
             speaker_synthesizers = {}
-            for idx, speaker in enumerate(detected_speakers):
-                progress = 55 + int((idx / len(detected_speakers)) * 10)
+            speakers_to_generate = [
+                s for s in detected_speakers if s["id"] in unique_speakers
+            ]
+
+            for idx, speaker in enumerate(speakers_to_generate):
+                progress = 56 + int((idx / max(len(speakers_to_generate), 1)) * 14)
 
                 # Parse detailed voice characteristics
                 voice_chars = speaker["voice_characteristics"]
                 try:
-                    # Use DetailedVoiceProfile to parse and enhance voice characteristics
                     voice_profile = DetailedVoiceProfile.from_natural_language(
                         voice_chars
                     )
@@ -234,7 +280,8 @@ class AudiobookWorkerWithProgress:
 
                 self.update_progress(
                     progress,
-                    f"Generating voice for {speaker['name']}\n🎤 {enhanced_instruction}",
+                    f"Generating voice {idx + 1}/{len(speakers_to_generate)}: {speaker['name']}\n"
+                    f"Voice: {enhanced_instruction}",
                 )
 
                 voice_config = VoiceConfig(
@@ -246,32 +293,64 @@ class AudiobookWorkerWithProgress:
 
                 synthesizer = TTSSynthesizer(voice_config=voice_config)
                 ref_path = job_output_dir / "segments" / f"voice_{speaker['id']}.wav"
-                ref_path.parent.mkdir(exist_ok=True)
+                ref_path.parent.mkdir(parents=True, exist_ok=True)
                 synthesizer.create_voice(output_path=str(ref_path))
                 synthesizer.prepare_voice_clone()
                 speaker_synthesizers[speaker["id"]] = synthesizer
 
             self.update_progress(
-                65,
-                f"Generated {len(speaker_synthesizers)} voices with detailed control",
+                70, f"Generated {len(speaker_synthesizers)} unique voices"
             )
 
-            # Step 5: Synthesize audio
-            self.update_progress(70, "Synthesizing audio...")
+            # Step 6: Synthesize each segment with its assigned speaker's voice and delivery style
+            self.update_progress(71, "Synthesizing audio segments...")
 
             audio_files = []
-            for idx, text in enumerate(processed_texts):
-                progress = 70 + int((idx / len(processed_texts)) * 25)
-                self.update_progress(
-                    progress,
-                    f"Synthesizing segment {idx + 1}/{len(processed_texts)}...",
+            for idx, segment in enumerate(segments):
+                progress = 71 + int((idx / max(total_segments, 1)) * 24)
+
+                speaker_id = segment["speaker_id"]
+                speaker_name = segment["speaker_name"]
+                delivery = segment.get("delivery", "")
+                text_preview = (
+                    segment["text"][:60] + "..."
+                    if len(segment["text"]) > 60
+                    else segment["text"]
                 )
 
-                synthesizer = speaker_synthesizers.get("narrator")
+                # Build progress message with delivery info
+                progress_msg = (
+                    f"Synthesizing segment {idx + 1}/{total_segments}\n"
+                    f"Speaker: {speaker_name}"
+                )
+                if delivery:
+                    progress_msg += f"\nDelivery: {delivery}"
+                progress_msg += f"\nText: {text_preview}"
+
+                self.update_progress(progress, progress_msg)
+
+                # Get the correct synthesizer for this speaker
+                synthesizer = speaker_synthesizers.get(speaker_id)
+                if not synthesizer:
+                    logger.warning(
+                        f"No synthesizer for speaker '{speaker_id}', using narrator"
+                    )
+                    synthesizer = speaker_synthesizers.get("narrator")
+
+                if not synthesizer:
+                    logger.error(f"No synthesizer available for segment {idx}")
+                    continue
+
                 output_path = job_output_dir / "segments" / f"segment_{idx:04d}.wav"
 
+                # Synthesize with per-segment delivery style
+                if delivery:
+                    logger.info(f"Segment {idx} delivery: {delivery}")
+
                 wavs, sr = synthesizer.synthesize(
-                    text=text, output_path=str(output_path)
+                    text=segment["text"],
+                    output_path=str(output_path),
+                    delivery=delivery if delivery else None,
                 )
                 audio_files.append(str(output_path))
 

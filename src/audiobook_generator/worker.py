@@ -21,8 +21,10 @@ class AudiobookWorker:
         self,
         job_queue: JobQueue,
         output_base_dir: str = "./data/output",
-        ollama_model: str = "gpt-oss-16k:120b",
-        ollama_base_url: str = "https://192.168.178.166/v1",
+        llm_provider: str = "ollama",
+        llm_model: str = "gpt-oss:20b",
+        llm_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_api_key: Optional[str] = None,
         tts_device: str = "cuda:0",
         tts_dtype: str = "bfloat16",
         poll_interval: int = 5,
@@ -33,8 +35,10 @@ class AudiobookWorker:
         Args:
             job_queue: Job queue instance
             output_base_dir: Base directory for output files
-            ollama_model: Ollama model name
-            ollama_base_url: Ollama API base URL
+            llm_provider: LLM provider (ollama, openai, anthropic)
+            llm_model: Model name for the provider
+            llm_base_url: API base URL
+            llm_api_key: API key (required for openai/anthropic)
             tts_device: TTS device
             tts_dtype: TTS dtype
             poll_interval: Seconds to wait between polling for jobs
@@ -43,8 +47,10 @@ class AudiobookWorker:
         self.output_base_dir = Path(output_base_dir)
         self.output_base_dir.mkdir(parents=True, exist_ok=True)
 
-        self.ollama_model = ollama_model
-        self.ollama_base_url = ollama_base_url
+        self.llm_provider = llm_provider
+        self.llm_model = llm_model
+        self.llm_base_url = llm_base_url
+        self.llm_api_key = llm_api_key
         self.tts_device = tts_device
         self.tts_dtype = tts_dtype
         self.poll_interval = poll_interval
@@ -107,8 +113,10 @@ class AudiobookWorker:
 
             # Initialize generator
             generator = MultiSpeakerAudiobookGenerator(
-                ollama_model=self.ollama_model,
-                ollama_base_url=self.ollama_base_url,
+                llm_provider=self.llm_provider,
+                llm_model=self.llm_model,
+                llm_base_url=self.llm_base_url,
+                llm_api_key=self.llm_api_key,
                 tts_device=self.tts_device,
                 tts_dtype=self.tts_dtype,
                 enable_text_processing=job.enable_text_processing,

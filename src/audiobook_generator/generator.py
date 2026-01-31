@@ -7,7 +7,7 @@ from tqdm import tqdm
 import json
 
 from .text_processor import TextProcessor, TextBatch
-from .ollama_client import OllamaClient, ProcessingResult
+from .llm_client import LLMClient, ProcessingResult
 from .tts_synthesizer import TTSSynthesizer, VoiceConfig
 
 logger = logging.getLogger(__name__)
@@ -18,31 +18,49 @@ class AudiobookGenerator:
 
     def __init__(
         self,
-        ollama_model: str = "gpt-oss:120b",
-        ollama_host: Optional[str] = None,
+        llm_provider: str = "ollama",
+        llm_model: str = "gpt-oss:20b",
+        llm_base_url: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
         voice_config: Optional[VoiceConfig] = None,
         max_chars_per_batch: int = 16000,
         enable_text_processing: bool = True,
+        # Backward compat
+        ollama_model: Optional[str] = None,
+        ollama_host: Optional[str] = None,
     ):
         """
         Initialize audiobook generator.
 
         Args:
-            ollama_model: Ollama model name
-            ollama_host: Ollama API endpoint
+            llm_provider: LLM provider (ollama, openai, anthropic)
+            llm_model: Model name for the provider
+            llm_base_url: API base URL
+            llm_api_key: API key (required for openai/anthropic)
             voice_config: Voice configuration for TTS
             max_chars_per_batch: Maximum characters per batch
-            enable_text_processing: Whether to process text through Ollama
+            enable_text_processing: Whether to process text through LLM
         """
+        # Backward compat
+        if ollama_model:
+            llm_model = ollama_model
+        if ollama_host:
+            llm_base_url = ollama_host
+
         self.enable_text_processing = enable_text_processing
 
         # Initialize components
         self.text_processor = TextProcessor(max_chars=max_chars_per_batch)
 
         if enable_text_processing:
-            self.ollama_client = OllamaClient(model=ollama_model, host=ollama_host)
+            self.llm_client = LLMClient(
+                provider=llm_provider,
+                model=llm_model,
+                base_url=llm_base_url,
+                api_key=llm_api_key,
+            )
         else:
-            self.ollama_client = None
+            self.llm_client = None
 
         self.tts_synthesizer = TTSSynthesizer(voice_config=voice_config)
 
@@ -114,14 +132,14 @@ class AudiobookGenerator:
         batches = self.text_processor.process_file(input_file)
         logger.info(f"Created {len(batches)} batches")
 
-        # Step 2: Process through Ollama (optional)
-        if self.enable_text_processing and self.ollama_client:
-            logger.info("Step 2: Processing text through Ollama...")
+        # Step 2: Process through LLM (optional)
+        if self.enable_text_processing and self.llm_client:
+            logger.info("Step 2: Processing text through LLM...")
             processed_texts = []
             processing_metadata = []
 
             for batch in tqdm(batches, desc="Processing batches"):
-                result = self.ollama_client.process_text(
+                result = self.llm_client.process_text(
                     text=batch.text, batch_index=batch.batch_index
                 )
                 processed_texts.append(result.processed_text)
@@ -203,8 +221,8 @@ class AudiobookGenerator:
         logger.info("Quick generation mode")
 
         # Process if enabled
-        if process_text and self.ollama_client:
-            result = self.ollama_client.process_text(text)
+        if process_text and self.llm_client:
+            result = self.llm_client.process_text(text)
             text = result.processed_text
 
         # Ensure voice is ready
