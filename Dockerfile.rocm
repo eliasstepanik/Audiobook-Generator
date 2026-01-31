@@ -68,11 +68,14 @@ RUN pip install --no-cache-dir --break-system-packages \
     setuptools \
     ninja
 
-# Install qwen-tts separately to ensure it succeeds
+# Install sox Python package with older setuptools to avoid build issues
+# Then install qwen-tts
 # Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
 # when flash_attn is installed but no GPU is available at import time.
 # qwen_tts will use standard attention as fallback.
-RUN pip install --no-cache-dir --break-system-packages qwen-tts
+RUN pip install --no-cache-dir --break-system-packages "setuptools<75" \
+    && pip install --no-cache-dir --break-system-packages sox \
+    && pip install --no-cache-dir --break-system-packages qwen-tts
 
 # Copy application code
 COPY src/ ./src/
