@@ -1,0 +1,34 @@
+version: '3.8'
+
+# Docker Compose for CPU-only mode
+# Use this when GPU is not available or not working (e.g., gfx1151 compatibility issues)
+# Usage: docker-compose -f docker-compose.cpu.yml up -d
+
+services:
+  audiobook-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: audiobook-generator-cpu
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist data and config
+      - ./data:/app/data
+      - ./config.yml:/app/config.yml:ro
+      # Model cache (prevents re-downloading models)
+      - audiobook-models-cpu:/home/appuser/.cache
+    environment:
+      # Force CPU mode
+      - TTS_DEVICE=cpu
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  audiobook-models-cpu:
+    name: audiobook-generator-models-cpu
