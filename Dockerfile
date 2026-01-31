@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsox-dev \
     git \
     build-essential \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
@@ -52,8 +53,8 @@ RUN mkdir -p /app/data/input /app/data/output /app/data/temp \
     && chown -R appuser:appuser /app \
     && chown -R appuser:appuser /home/appuser/.cache
 
-# Switch to non-root user
-USER appuser
+# NOTE: We start as root to fix bind-mount permissions in entrypoint, then drop to appuser
+# USER appuser is handled by the entrypoint script after fixing permissions
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1

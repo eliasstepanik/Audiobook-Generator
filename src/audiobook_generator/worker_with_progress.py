@@ -311,21 +311,17 @@ class AudiobookWorkerWithProgress:
 
                 speaker_id = segment["speaker_id"]
                 speaker_name = segment["speaker_name"]
-                delivery = segment.get("delivery", "")
                 text_preview = (
                     segment["text"][:60] + "..."
                     if len(segment["text"]) > 60
                     else segment["text"]
                 )
 
-                # Build progress message with delivery info
                 progress_msg = (
                     f"Synthesizing segment {idx + 1}/{total_segments}\n"
-                    f"Speaker: {speaker_name}"
+                    f"Speaker: {speaker_name}\n"
+                    f"Text: {text_preview}"
                 )
-                if delivery:
-                    progress_msg += f"\nDelivery: {delivery}"
-                progress_msg += f"\nText: {text_preview}"
 
                 self.update_progress(progress, progress_msg)
 
@@ -343,14 +339,9 @@ class AudiobookWorkerWithProgress:
 
                 output_path = job_output_dir / "segments" / f"segment_{idx:04d}.wav"
 
-                # Synthesize with per-segment delivery style
-                if delivery:
-                    logger.info(f"Segment {idx} delivery: {delivery}")
-
                 wavs, sr = synthesizer.synthesize(
                     text=segment["text"],
                     output_path=str(output_path),
-                    delivery=delivery if delivery else None,
                 )
                 audio_files.append(str(output_path))
 

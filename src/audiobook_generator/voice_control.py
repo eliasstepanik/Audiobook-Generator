@@ -149,20 +149,9 @@ class DetailedVoiceProfile:
         if self.pace != VoicePace.NORMAL:
             parts.append(f"{self.pace.value} pace")
 
-        # Tone
-        if self.tone != VoiceTone.NEUTRAL:
-            parts.append(f"{self.tone.value} tone")
-
-        # Mood
-        if self.mood:
-            parts.append(f"{self.mood.value} mood")
-
-        # Energy
-        if self.energy_level != "medium":
-            if self.energy_level == "high":
-                parts.append("energetic")
-            elif self.energy_level == "low":
-                parts.append("subdued")
+        # NOTE: Tone, mood, and energy are intentionally excluded from voice design.
+        # These are transient emotional states that cause the VoiceDesign model to
+        # produce inconsistent voices (sounding like different people).
 
         # Clarity
         if self.clarity != "clear":

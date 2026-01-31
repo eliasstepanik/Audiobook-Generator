@@ -57,6 +57,22 @@ if [ "${INSTALL_FLASH_ATTN:-true}" = "true" ]; then
     install_flash_attention
 fi
 
+# Fix data directory permissions (bind-mounted host dirs may not be writable by appuser)
+fix_data_permissions() {
+    if [ "$(id -u)" = "0" ] && id appuser &>/dev/null; then
+        echo "Fixing data directory permissions..."
+        for dir in /app/data /app/data/input /app/data/output /app/data/temp; do
+            if [ -d "$dir" ]; then
+                chown appuser:appuser "$dir" 2>/dev/null || true
+            else
+                mkdir -p "$dir" && chown appuser:appuser "$dir" 2>/dev/null || true
+            fi
+        done
+    fi
+}
+
+fix_data_permissions
+
 # Drop privileges to appuser if running as root (for ROCm builds that need root for GPU permissions)
 if [ "$(id -u)" = "0" ] && id appuser &>/dev/null; then
     echo "Dropping privileges to appuser..."

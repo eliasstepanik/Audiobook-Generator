@@ -253,25 +253,19 @@ class TTSSynthesizer:
         text: Union[str, List[str]],
         output_path: Optional[Union[str, List[str]]] = None,
         language: Optional[Union[str, List[str]]] = None,
-        delivery: Optional[str] = None,
     ) -> Tuple[Union[np.ndarray, List[np.ndarray]], int]:
         """
-        Synthesize speech from text with optional per-segment delivery style.
+        Synthesize speech from text.
 
         Args:
             text: Single text or list of texts
             output_path: Optional path(s) to save audio
             language: Language(s) for synthesis
-            delivery: Optional delivery instruction (e.g. "slow, tense, whispered")
-                     Prepended as context hint for TTS model to control speaking style.
 
         Returns:
             Tuple of (audio_data, sample_rate)
             audio_data is either a single array or list of arrays
         """
-        # Log delivery style if provided (not prepended to text to avoid TTS speaking it aloud)
-        if delivery:
-            logger.info(f"Delivery style for segment (not applied to text): {delivery}")
         # Ensure voice clone prompt is ready
         if self.voice_clone_prompt is None:
             self.prepare_voice_clone()

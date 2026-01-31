@@ -39,13 +39,13 @@ Return ONLY a valid JSON object in this exact format:
       "id": "narrator",
       "name": "Narrator",
       "description": "The main narrative voice",
-      "voice_characteristics": "Male, 35 years old, normal pitch, normal pace, calm tone, clear articulation, warm and engaging voice"
+      "voice_characteristics": "Male, 35 years old, normal pitch, normal pace, clear articulation, warm and engaging voice"
     },
     {
       "id": "character_name",
       "name": "Character Name",
       "description": "Brief character description",
-      "voice_characteristics": "Female, 25 years old, high-pitched, fast pace, upbeat tone, energetic mood, cheerful and lively voice"
+      "voice_characteristics": "Female, 25 years old, high-pitched, fast pace, clear articulation"
     }
   ]
 }
@@ -55,23 +55,22 @@ CRITICAL - Include these DETAILED PARAMETERS for each speaker:
 - Age: specific age (e.g., "25 years old", "elderly", "child")
 - Pitch: very low-pitched, low-pitched, normal pitch, high-pitched, very high-pitched
 - Pace: very slow, slow, normal, fast, very fast
-- Tone: upbeat, cheerful, calm, serious, restrained, energetic, mysterious, dramatic, sad, angry, fearful
-- Mood (optional): happy, sad, tired, energetic, relaxed, tense, confident, uncertain, playful
-- Energy level: low energy, medium energy, high energy
 - Clarity: clear, slightly unclear (if mumbled/slurred speech)
 - Style: formal, casual (if relevant to character)
 
+DO NOT include mood, tone, or emotional state in voice_characteristics. These are transient and should NOT define the voice identity. Focus ONLY on stable physical voice traits (gender, age, pitch, pace).
+
 EXAMPLES OF GOOD voice_characteristics:
-- "Young female voice, high-pitched, fast pace, upbeat tone, energetic mood"
-- "Low-pitched male voice, slow pace, restrained tone, tired mood, elderly"
-- "Female, 30 years old, normal pitch, fast pace, cheerful tone, confident mood"
-- "Male, 45 years old, very low-pitched, very slow pace, mysterious tone, tense mood"
-- "Child, 10 years old, high-pitched, fast pace, playful tone, excited mood"
+- "Young female voice, high-pitched, fast pace"
+- "Low-pitched male voice, slow pace, elderly"
+- "Female, 30 years old, normal pitch, fast pace, clear articulation"
+- "Male, 45 years old, very low-pitched, very slow pace"
+- "Child, 10 years old, high-pitched, fast pace"
 
 IMPORTANT RULES:
 - Always include a "narrator" speaker
 - Be SPECIFIC - use exact parameters like "high-pitched, fast pace" not just "energetic voice"
-- Match voice to character personality (villain = low pitch + slow pace + mysterious)
+- Match voice to character personality using PHYSICAL traits (villain = low pitch + slow pace, child = high pitch + fast pace)
 - Match voice to age (child = high pitch + fast pace, elderly = low pitch + slow pace)
 - Keep IDs as simple lowercase with underscores (e.g., "john_smith")
 - Return ONLY valid JSON, no markdown formatting, no extra text"""
@@ -205,41 +204,38 @@ Available speakers:
 
 TASK: Break the text into sequential segments. Each segment is a contiguous piece of text spoken by ONE speaker. Narration goes to "narrator", dialogue goes to the character who speaks it.
 
-For EACH segment, also provide a "delivery" instruction describing HOW this specific segment should be spoken. The delivery should reflect the emotional context, pacing, and intensity of that exact moment in the story.
+EMOTIONAL DELIVERY THROUGH PUNCTUATION:
+The TTS model cannot receive emotion instructions directly. Instead, you must convey emotion through subtle punctuation adjustments in the text itself. This is the ONLY way to control delivery.
+
+Allowed punctuation techniques (use sparingly and naturally):
+- Ellipses "..." for hesitation, trailing off, or dramatic pauses
+- Em-dashes "—" for abrupt interruptions or sharp breaks in thought
+- Commas for natural breathing pauses in tense or slow moments
+- Exclamation marks for emphasis, excitement, or urgency
+- Question marks for uncertainty or rising intonation
+- Short sentences for tension and urgency
+- Longer flowing sentences for calm, contemplative moments
+
+IMPORTANT: Keep the original WORDS intact. You may only adjust punctuation to hint at emotion. Do NOT add words, remove words, or rephrase.
 
 Return ONLY a valid JSON object in this exact format:
 {{
   "segments": [
-    {{"speaker_id": "narrator", "text": "...", "delivery": "calm, steady, setting the scene"}},
-    {{"speaker_id": "character_id", "text": "...", "delivery": "slow, deliberate, with quiet intensity"}},
-    {{"speaker_id": "narrator", "text": "...", "delivery": "faster, breathless, building tension"}}
+    {{"speaker_id": "narrator", "text": "The room was silent. Nothing moved."}},
+    {{"speaker_id": "character_id", "text": "I... I don't know what happened."}},
+    {{"speaker_id": "narrator", "text": "She turned away — unable to face him."}}
   ]
 }}
-
-DELIVERY EXAMPLES (adapt to the actual text context):
-- Tension building: "slower pace, hushed, quiet intensity, weighted pauses"
-- Excitement: "faster pace, energetic, breathless, rising pitch"
-- Fear/dread: "trembling, whispered, halting, nervous pauses"
-- Wonder/realization: "soft, awestruck, gradually building, breathless"
-- Calm/contemplative: "soft, dreamy, measured pace, gentle"
-- Anger: "sharp, forceful, clipped words, intense"
-- Sadness: "subdued, slow, wavering, heavy"
-- Climactic moment: "dramatic, weighted pauses, powerful, resonant"
-- Whispering: "hushed, barely audible, intimate"
-- Shouting: "loud, commanding, forceful, projected"
-- Sarcasm: "dry, flat delivery, slight edge"
-- Mysterious: "low, slow, enigmatic, deliberate"
 
 RULES:
 1. Keep segments in exact reading order
 2. Include ALL text - do not skip or summarize anything
-3. Use exact text from the input - do not paraphrase or modify
+3. Keep the original words exactly as written - only subtle punctuation adjustments are allowed
 4. Narration/description/attribution (e.g. "said the wizard") goes to "narrator"
 5. Only the actual spoken words of a character go to that character's speaker_id
 6. If unsure who speaks, assign to "narrator"
 7. Return ONLY valid JSON, no markdown, no explanations
-8. Keep the original text exactly as written
-9. ALWAYS include a "delivery" field for every segment - tailor it to the emotional moment"""
+8. Do NOT include a "delivery" field - emotion is conveyed through punctuation only"""
 
         try:
             result = self.llm_client.process_text(
@@ -286,8 +282,6 @@ RULES:
             for idx, seg in enumerate(segments):
                 speaker_id = seg.get("speaker_id", "narrator")
                 text_content = seg.get("text", "").strip()
-                delivery = seg.get("delivery", "").strip()
-
                 if not text_content:
                     continue
 
@@ -303,7 +297,6 @@ RULES:
                         "text": text_content,
                         "speaker_id": speaker_id,
                         "speaker_name": speaker_names.get(speaker_id, "Narrator"),
-                        "delivery": delivery,  # Per-segment delivery style
                         "segment_index": idx,
                     }
                 )
