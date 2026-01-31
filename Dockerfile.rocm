@@ -16,16 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Triton for ROCm Flash Attention
-RUN pip install --no-cache-dir triton==3.2.0
-
-# Build Flash Attention with Triton backend for ROCm
-ENV FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
-RUN git clone https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attention \
-    && cd /tmp/flash-attention \
-    && python setup.py install \
-    && rm -rf /tmp/flash-attention
-
 # Create app user for security (use different UID since 1000 may be taken in base image)
 RUN useradd -m -u 1001 appuser || true
 
@@ -36,12 +26,10 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies (skip torch since it's pre-installed in base image)
-# Include build tools for runtime flash-attn installation
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir \
     soundfile \
     numpy \
-    qwen-tts \
     transformers \
     accelerate \
     requests \
@@ -57,7 +45,19 @@ RUN pip install --no-cache-dir --upgrade pip \
     tqdm \
     packaging \
     wheel \
-    setuptools
+    setuptools \
+    ninja
+
+# Install qwen-tts separately to ensure it succeeds
+RUN pip install --no-cache-dir qwen-tts
+
+# Try to install Flash Attention with Triton backend for ROCm (optional, may fail)
+ENV FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
+RUN pip install --no-cache-dir triton || true
+RUN git clone https://github.com/Dao-AILab/flash-attention.git /tmp/flash-attention \
+    && cd /tmp/flash-attention \
+    && pip install . --no-build-isolation || echo "Flash Attention build failed, continuing without it" \
+    && rm -rf /tmp/flash-attention
 
 # Copy application code
 COPY src/ ./src/
