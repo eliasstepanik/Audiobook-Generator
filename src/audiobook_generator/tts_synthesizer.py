@@ -269,13 +269,9 @@ class TTSSynthesizer:
             Tuple of (audio_data, sample_rate)
             audio_data is either a single array or list of arrays
         """
-        # Apply delivery style instruction if provided
+        # Log delivery style if provided (not prepended to text to avoid TTS speaking it aloud)
         if delivery:
-            if isinstance(text, list):
-                text = [f"[{delivery}] {t}" for t in text]
-            else:
-                text = f"[{delivery}] {text}"
-            logger.info(f"Applied delivery style: {delivery}")
+            logger.info(f"Delivery style for segment (not applied to text): {delivery}")
         # Ensure voice clone prompt is ready
         if self.voice_clone_prompt is None:
             self.prepare_voice_clone()
