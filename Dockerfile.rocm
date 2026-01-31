@@ -46,9 +46,8 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --break-system-packages --upgrade pip \
-    && pip install --no-cache-dir --break-system-packages \
+# Install Python dependencies (skip pip upgrade - system pip works fine)
+RUN pip install --no-cache-dir --break-system-packages \
     soundfile \
     numpy \
     transformers \
