@@ -1,15 +1,14 @@
 # Audiobook Generator - ROCm (AMD GPU) Docker build
 # Supports AMD GPU acceleration for TTS via ROCm
-# Uses custom PyTorch wheels for gfx1151 (Radeon 8060S/RDNA 3.5) support
-# See: https://github.com/ROCm/TheRock/discussions/655
+# Note: gfx1151 (Radeon 8060S/Strix Halo) has limited ROCm support
+# See: https://github.com/ROCm/ROCm/issues/5824
 
-FROM rocm/dev-ubuntu-24.04:6.4.1 AS base
+FROM rocm/pytorch:latest AS base
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies including sox for qwen-tts and Python 3.11
-# The gfx1151 PyTorch wheel is built for Python 3.11, not 3.12
+# Install system dependencies including sox for qwen-tts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     sox \
@@ -18,28 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     build-essential \
     gosu \
-    curl \
-    software-properties-common \
-    && add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
-    python3.11-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Create virtual environment to avoid Ubuntu's broken setuptools
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3.11 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Upgrade pip and install working setuptools in venv
-RUN pip install --no-cache-dir --upgrade pip "setuptools<70" wheel
-
-# Install custom PyTorch wheel with gfx1151 support from TheRock project
-# These wheels are built specifically for RDNA 3.5 (gfx1151) GPUs - Python 3.11 only
-RUN pip install --no-cache-dir \
-    https://github.com/scottt/rocm-TheRock/releases/download/v6.5.0rc-pytorch/torch-2.7.0a0+gitbfd8155-cp311-cp311-linux_x86_64.whl
 
 # Create app user for security (use different UID since 1000 may be taken in base image)
 # Add to video and render groups for GPU access
@@ -51,8 +29,9 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
+# Install Python dependencies (skip torch since it's pre-installed in base image)
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
     soundfile \
     numpy \
     transformers \
@@ -69,13 +48,15 @@ RUN pip install --no-cache-dir \
     python-dotenv \
     tqdm \
     packaging \
+    wheel \
+    setuptools \
     ninja
 
-# Install sox Python package and qwen-tts
+# Install qwen-tts separately to ensure it succeeds
 # Note: Do NOT install flash_attn for ROCm - qwen_tts has a hard import that crashes
 # when flash_attn is installed but no GPU is available at import time.
 # qwen_tts will use standard attention as fallback.
-RUN pip install --no-cache-dir sox qwen-tts
+RUN pip install --no-cache-dir qwen-tts
 
 # Copy application code
 COPY src/ ./src/
@@ -103,6 +84,16 @@ ENV HF_HOME=/home/appuser/.cache/huggingface
 ENV NUMBA_CACHE_DIR=/tmp/numba_cache
 # Skip runtime flash-attn install (not compatible with ROCm in qwen_tts)
 ENV INSTALL_FLASH_ATTN=false
+
+# gfx1151 (Strix Halo/Radeon 8060S) workarounds:
+# - HSA_OVERRIDE_GFX_VERSION: Force gfx1100 compatibility mode
+# - AMD_LOG_LEVEL: Reduce HIP runtime logging noise  
+# - HIP_VISIBLE_DEVICES: Ensure GPU 0 is used
+# - PYTORCH_HIP_ALLOC_CONF: Memory allocation settings
+ENV HSA_OVERRIDE_GFX_VERSION=11.0.0
+ENV AMD_LOG_LEVEL=1
+ENV HIP_VISIBLE_DEVICES=0
+ENV PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 
 # Expose port
 EXPOSE 8000

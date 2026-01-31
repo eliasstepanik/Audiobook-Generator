@@ -30,18 +30,11 @@ services:
     # Uncomment to run as root for debugging GPU access issues:
     # user: root
     environment:
-      # Disable flash attention by default (can cause issues on some GPUs)
+      # Environment variables are set in Dockerfile.rocm for gfx1151 compatibility
+      # Override here if needed for different GPU:
+      # - HSA_OVERRIDE_GFX_VERSION=11.0.0  # gfx1100 (RX 7900)
+      # - HSA_OVERRIDE_GFX_VERSION=10.3.0  # gfx1030 (RX 6800/6900)
       - INSTALL_FLASH_ATTN=false
-      # ROCm environment variables
-      # Note: gfx1151 (Radeon 8060S/RDNA 3.5) has native support in rocm/pytorch:latest
-      # HSA_OVERRIDE_GFX_VERSION is only needed for unsupported architectures
-      # Uncomment and adjust if your GPU is not natively supported:
-      # - HSA_OVERRIDE_GFX_VERSION=11.0.0
-      # - PYTORCH_ROCM_ARCH=gfx1100
-      # Common HSA versions for override:
-      # 9.0.6   - gfx906  - Vega 20 (MI50/MI60, Radeon VII)
-      # 10.3.0  - gfx1030 - RDNA 2 (RX 6800/6900)
-      # 11.0.0  - gfx1100 - RDNA 3 (RX 7900)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
