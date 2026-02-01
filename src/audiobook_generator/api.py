@@ -7,6 +7,9 @@ from pydantic import BaseModel, HttpUrl
 from typing import Optional, List
 from pathlib import Path
 import logging
+import zipfile
+import io
+import tempfile
 
 from .database import get_database
 from .job_queue import JobQueue
@@ -59,6 +62,10 @@ class JobResponse(BaseModel):
     enable_speaker_detection: bool
     webhook_url: Optional[str]
     error_message: Optional[str]
+    parent_job_id: Optional[str] = None
+    chapter_index: Optional[int] = None
+    is_batch: bool = False
+    child_jobs: Optional[List["JobResponse"]] = None
     created_at: Optional[str]
     started_at: Optional[str]
     completed_at: Optional[str]
@@ -221,8 +228,16 @@ def list_jobs(status: Optional[str] = None, limit: int = 100, offset: int = 0):
 
         total = job_queue.get_job_count(status=job_status)
 
+        job_responses = []
+        for job in jobs:
+            job_dict = job.to_dict()
+            if job.is_batch:
+                children = job_queue.get_child_jobs(job.job_id)
+                job_dict["child_jobs"] = [c.to_dict() for c in children]
+            job_responses.append(JobResponse(**job_dict))
+
         return JobListResponse(
-            jobs=[JobResponse(**job.to_dict()) for job in jobs],
+            jobs=job_responses,
             total=total,
             limit=limit,
             offset=offset,
@@ -248,7 +263,12 @@ def get_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return JobResponse(**job.to_dict())
+    job_dict = job.to_dict()
+    if job.is_batch:
+        children = job_queue.get_child_jobs(job.job_id)
+        job_dict["child_jobs"] = [c.to_dict() for c in children]
+
+    return JobResponse(**job_dict)
 
 
 @app.get("/jobs/{job_id}/download")
@@ -307,6 +327,141 @@ def delete_job(job_id: str):
         return {"message": "Job deleted", "job_id": job_id}
     else:
         raise HTTPException(status_code=500, detail="Failed to delete job")
+
+
+@app.post("/jobs/upload-book", status_code=201)
+async def create_batch_job_from_zip(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    enable_text_processing: bool = Form(True),
+    enable_speaker_detection: bool = Form(True),
+    webhook_url: Optional[str] = Form(None),
+):
+    """
+    Upload a ZIP file containing chapter .txt files to create a batch audiobook job.
+
+    The ZIP must contain .txt files named with numeric prefixes for ordering:
+    0000_chapter1.txt, 0001_chapter2.txt, etc.
+    """
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="File must be a .zip archive")
+
+    try:
+        content = await file.read()
+        zip_buffer = io.BytesIO(content)
+
+        if not zipfile.is_zipfile(zip_buffer):
+            raise HTTPException(status_code=400, detail="Invalid ZIP file")
+
+        zip_buffer.seek(0)
+        chapters = []
+
+        with zipfile.ZipFile(zip_buffer, "r") as zf:
+            txt_files = sorted(
+                [
+                    f
+                    for f in zf.namelist()
+                    if f.lower().endswith(".txt")
+                    and not f.startswith("__MACOSX")
+                    and not f.startswith(".")
+                ]
+            )
+
+            if not txt_files:
+                raise HTTPException(
+                    status_code=400, detail="ZIP file contains no .txt files"
+                )
+
+            for txt_file in txt_files:
+                text = zf.read(txt_file).decode("utf-8")
+                # Use just the filename, not the full path inside ZIP
+                filename = Path(txt_file).name
+                chapters.append({"filename": filename, "text": text})
+
+        book_title = title or Path(file.filename).stem
+
+        result = job_queue.create_batch_job(
+            title=book_title,
+            chapters=chapters,
+            enable_text_processing=enable_text_processing,
+            enable_speaker_detection=enable_speaker_detection,
+            webhook_url=webhook_url,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400, detail="All .txt files in the ZIP must be valid UTF-8 text"
+        )
+    except Exception as e:
+        logger.error(f"Failed to create batch job from ZIP: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/jobs/{job_id}/download-book")
+def download_batch_job(job_id: str):
+    """
+    Download all completed chapter audio files as a ZIP.
+
+    Only available for batch jobs that have completed.
+    """
+    job = job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.is_batch:
+        raise HTTPException(status_code=400, detail="Not a batch job")
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Batch job is not completed. Current status: {job.status}",
+        )
+
+    children = job_queue.get_child_jobs(job_id)
+    if not children:
+        raise HTTPException(status_code=404, detail="No chapter jobs found")
+
+    batch_output_dir = Path("./data/output") / job_id
+
+    # Build ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add chapter audio files
+        for child in children:
+            if child.output_path and Path(child.output_path).exists():
+                zf.write(child.output_path, f"audio/{child.output_filename}")
+
+        # Add characters.json manifest
+        manifest_path = batch_output_dir / "characters.json"
+        if manifest_path.exists():
+            zf.write(str(manifest_path), "characters.json")
+
+        # Add voice reference WAV files
+        voices_dir = batch_output_dir / "voices"
+        if voices_dir.exists():
+            for voice_file in voices_dir.glob("*.wav"):
+                zf.write(str(voice_file), f"voices/{voice_file.name}")
+
+    zip_buffer.seek(0)
+
+    # Write to temp file for FileResponse
+    zip_filename = job.output_filename or f"{job.title}.zip"
+    batch_output_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = batch_output_dir / zip_filename
+
+    with open(zip_path, "wb") as f:
+        f.write(zip_buffer.getvalue())
+
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename=zip_filename,
+    )
 
 
 @app.get("/stats")

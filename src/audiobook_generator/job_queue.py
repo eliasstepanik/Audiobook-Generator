@@ -107,40 +107,9 @@ class JobQueue:
 
             return job
 
-    def get_all_jobs(
-        self, status: Optional[JobStatus] = None, limit: int = 100, offset: int = 0
-    ) -> List[AudiobookJob]:
-        """
-        Get all jobs with optional filtering.
-
-        Args:
-            status: Filter by status
-            limit: Maximum number of jobs to return
-            offset: Pagination offset
-
-        Returns:
-            List of jobs
-        """
-        with self.database.get_session() as session:
-            query = session.query(AudiobookJob)
-
-            if status:
-                query = query.filter(AudiobookJob.status == status)
-
-            query = query.order_by(AudiobookJob.created_at.desc())
-            query = query.limit(limit).offset(offset)
-
-            jobs = query.all()
-
-            # Expunge to use outside session
-            for job in jobs:
-                session.expunge(job)
-
-            return jobs
-
     def get_next_pending_job(self) -> Optional[AudiobookJob]:
         """
-        Get next pending job from queue.
+        Get next pending top-level job from queue (excludes child jobs).
 
         Returns:
             Next pending job or None
@@ -149,6 +118,7 @@ class JobQueue:
             job = (
                 session.query(AudiobookJob)
                 .filter(AudiobookJob.status == JobStatus.PENDING)
+                .filter(AudiobookJob.parent_job_id == None)
                 .order_by(AudiobookJob.created_at)
                 .first()
             )
@@ -254,7 +224,7 @@ class JobQueue:
 
     def get_job_count(self, status: Optional[JobStatus] = None) -> int:
         """
-        Get total number of jobs.
+        Get total number of jobs (excludes child jobs from count).
 
         Args:
             status: Filter by status
@@ -263,9 +233,125 @@ class JobQueue:
             Job count
         """
         with self.database.get_session() as session:
-            query = session.query(AudiobookJob)
+            query = session.query(AudiobookJob).filter(
+                AudiobookJob.parent_job_id == None
+            )
 
             if status:
                 query = query.filter(AudiobookJob.status == status)
 
             return query.count()
+
+    def create_batch_job(
+        self,
+        title: str,
+        chapters: list,
+        enable_text_processing: bool = True,
+        enable_speaker_detection: bool = True,
+        webhook_url: Optional[str] = None,
+    ) -> dict:
+        """
+        Create a batch parent job with chapter child jobs.
+
+        Args:
+            title: Book title
+            chapters: List of dicts with 'filename' and 'text' keys, sorted by chapter order
+            enable_text_processing: Whether to use LLM processing
+            enable_speaker_detection: Whether to detect multiple speakers
+            webhook_url: URL to call when batch completes
+
+        Returns:
+            Parent job dict with child_jobs list
+        """
+        parent_id = str(uuid.uuid4())
+
+        with self.database.get_session() as session:
+            # Create parent batch job (input_text stores chapter count info)
+            parent_job = AudiobookJob(
+                job_id=parent_id,
+                input_text=f"[Batch job: {len(chapters)} chapters]",
+                title=title,
+                input_filename=None,
+                is_batch=True,
+                enable_text_processing=enable_text_processing,
+                enable_speaker_detection=enable_speaker_detection,
+                output_filename=f"{title}.zip",
+                webhook_url=webhook_url,
+                status=JobStatus.PENDING,
+            )
+            session.add(parent_job)
+
+            child_jobs = []
+            for idx, chapter in enumerate(chapters):
+                child_id = str(uuid.uuid4())
+                child_job = AudiobookJob(
+                    job_id=child_id,
+                    input_text=chapter["text"],
+                    title=chapter["filename"],
+                    input_filename=chapter["filename"],
+                    parent_job_id=parent_id,
+                    chapter_index=idx,
+                    enable_text_processing=enable_text_processing,
+                    enable_speaker_detection=enable_speaker_detection,
+                    output_filename=Path(chapter["filename"]).stem + ".mp3",
+                    status=JobStatus.PENDING,
+                )
+                session.add(child_job)
+                child_jobs.append(child_job)
+
+            session.commit()
+            session.refresh(parent_job)
+            for cj in child_jobs:
+                session.refresh(cj)
+
+            result = parent_job.to_dict()
+            result["child_jobs"] = [cj.to_dict() for cj in child_jobs]
+
+            logger.info(f"Created batch job {parent_id} with {len(chapters)} chapters")
+
+        return result
+
+    def get_child_jobs(self, parent_job_id: str) -> List[AudiobookJob]:
+        """Get all child jobs for a batch parent, ordered by chapter_index."""
+        with self.database.get_session() as session:
+            jobs = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.parent_job_id == parent_job_id)
+                .order_by(AudiobookJob.chapter_index)
+                .all()
+            )
+            for job in jobs:
+                session.expunge(job)
+            return jobs
+
+    def get_all_jobs(
+        self, status: Optional[JobStatus] = None, limit: int = 100, offset: int = 0
+    ) -> List[AudiobookJob]:
+        """
+        Get all top-level jobs (excludes child jobs).
+
+        Args:
+            status: Filter by status
+            limit: Maximum number of jobs to return
+            offset: Pagination offset
+
+        Returns:
+            List of jobs
+        """
+        with self.database.get_session() as session:
+            query = session.query(AudiobookJob).filter(
+                AudiobookJob.parent_job_id == None
+            )
+
+            if status:
+                query = query.filter(AudiobookJob.status == status)
+
+            query = query.order_by(AudiobookJob.created_at.desc())
+            query = query.limit(limit).offset(offset)
+
+            jobs = query.all()
+
+            for job in jobs:
+                session.expunge(job)
+
+            return jobs

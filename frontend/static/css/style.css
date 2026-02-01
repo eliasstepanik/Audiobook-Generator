@@ -452,3 +452,92 @@ header h1 {
         grid-template-columns: 1fr;
     }
 }
+
+/* Batch/Book job styles */
+.batch-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
+
+.batch-job {
+    border-left: 3px solid #764ba2;
+}
+
+.child-jobs-section {
+    margin: 10px 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.child-jobs-header {
+    background: #f7f8fa;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #4a5568;
+    cursor: pointer;
+    user-select: none;
+}
+
+.child-jobs-header:hover {
+    background: #edf2f7;
+}
+
+.child-jobs-list {
+    padding: 4px 0;
+}
+
+.chapter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    font-size: 0.82rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.chapter-row:last-child {
+    border-bottom: none;
+}
+
+.chapter-index {
+    color: #a0aec0;
+    font-weight: 600;
+    min-width: 24px;
+}
+
+.chapter-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chapter-row .job-status {
+    font-size: 0.7rem;
+    padding: 1px 8px;
+}
+
+.chapter-progress-bar {
+    width: 60px;
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.chapter-progress-bar .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    border-radius: 2px;
+    transition: width 0.3s;
+}

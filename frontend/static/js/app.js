@@ -114,6 +114,50 @@ function initializeForms() {
             showToast(`Error: ${error.message}`, 'error');
         }
     });
+
+    // Book (ZIP) form submission
+    document.getElementById('book-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const title = document.getElementById('book-title').value;
+        const fileInput = document.getElementById('book-input');
+        const file = fileInput.files[0];
+        const enableTextProcessing = document.getElementById('book-text-processing').checked;
+        const enableSpeakerDetection = document.getElementById('book-speaker-detection').checked;
+        const webhookUrl = document.getElementById('book-webhook-url').value;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        if (title) {
+            formData.append('title', title);
+        }
+        formData.append('enable_text_processing', enableTextProcessing);
+        formData.append('enable_speaker_detection', enableSpeakerDetection);
+        if (webhookUrl) {
+            formData.append('webhook_url', webhookUrl);
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/jobs/upload-book`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || 'Failed to upload book');
+            }
+
+            const job = await response.json();
+            const chapterCount = job.child_jobs ? job.child_jobs.length : 0;
+            showToast(`Book uploaded! ${chapterCount} chapters queued.`, 'success');
+            document.getElementById('book-form').reset();
+            loadJobs();
+            loadStats();
+        } catch (error) {
+            showToast(`Error: ${error.message}`, 'error');
+        }
+    });
 }
 
 // Filters
@@ -178,17 +222,26 @@ async function loadJobs() {
 function renderJob(job) {
     const statusClass = `status-${job.status}`;
     const createdDate = new Date(job.created_at).toLocaleString();
-    
+    const isBatch = job.is_batch;
+
     let actionsHTML = '';
-    
+
     if (job.status === 'completed') {
-        actionsHTML = `
-            <button class="btn btn-success" onclick="downloadJob('${job.job_id}', '${job.output_filename}')">
-                ⬇️ Download
-            </button>
-        `;
+        if (isBatch) {
+            actionsHTML = `
+                <button class="btn btn-success" onclick="downloadBook('${job.job_id}', '${escapeAttr(job.output_filename)}')">
+                    ⬇️ Download ZIP
+                </button>
+            `;
+        } else {
+            actionsHTML = `
+                <button class="btn btn-success" onclick="downloadJob('${job.job_id}', '${escapeAttr(job.output_filename)}')">
+                    ⬇️ Download
+                </button>
+            `;
+        }
     }
-    
+
     if (job.status === 'pending' || job.status === 'processing') {
         actionsHTML += `
             <button class="btn btn-danger" onclick="deleteJob('${job.job_id}')">
@@ -196,7 +249,7 @@ function renderJob(job) {
             </button>
         `;
     }
-    
+
     if (job.status === 'failed' || job.status === 'cancelled' || job.status === 'completed') {
         actionsHTML += `
             <button class="btn btn-secondary" onclick="deleteJob('${job.job_id}')">
@@ -204,7 +257,7 @@ function renderJob(job) {
             </button>
         `;
     }
-    
+
     let progressHTML = '';
     if (job.status === 'processing' || job.status === 'pending') {
         const progressMessage = job.progress_message || 'Processing...';
@@ -217,7 +270,7 @@ function renderJob(job) {
             </div>
         `;
     }
-    
+
     let errorHTML = '';
     if (job.error_message) {
         errorHTML = `
@@ -226,18 +279,57 @@ function renderJob(job) {
             </div>
         `;
     }
-    
+
+    // Batch type badge
+    const typeBadge = isBatch
+        ? '<span class="batch-badge">BOOK</span>'
+        : '';
+
+    // Child jobs (chapters) for batch jobs
+    let childJobsHTML = '';
+    if (isBatch && job.child_jobs && job.child_jobs.length > 0) {
+        const chapterRows = job.child_jobs.map((child, idx) => {
+            const childStatus = `status-${child.status}`;
+            const chapterProgress = child.status === 'processing'
+                ? `<div class="chapter-progress-bar"><div class="progress-fill" style="width: ${child.progress}%"></div></div>`
+                : '';
+            return `
+                <div class="chapter-row">
+                    <span class="chapter-index">${idx + 1}.</span>
+                    <span class="chapter-name">${escapeHtml(child.title || child.input_filename || 'Chapter')}</span>
+                    <span class="job-status ${childStatus}">${child.status}</span>
+                    ${chapterProgress}
+                </div>
+            `;
+        }).join('');
+
+        const completedCount = job.child_jobs.filter(c => c.status === 'completed').length;
+        const totalCount = job.child_jobs.length;
+
+        childJobsHTML = `
+            <div class="child-jobs-section">
+                <div class="child-jobs-header" onclick="toggleChildJobs(this)">
+                    Chapters (${completedCount}/${totalCount} done) ▾
+                </div>
+                <div class="child-jobs-list" style="display: none;">
+                    ${chapterRows}
+                </div>
+            </div>
+        `;
+    }
+
     return `
-        <div class="job-item">
+        <div class="job-item ${isBatch ? 'batch-job' : ''}">
             <div class="job-header">
                 <div>
-                    <div class="job-title">${escapeHtml(job.title || job.input_filename || 'Untitled Audiobook')}</div>
+                    <div class="job-title">${typeBadge} ${escapeHtml(job.title || job.input_filename || 'Untitled Audiobook')}</div>
                     <div class="job-id">ID: ${job.job_id}</div>
                 </div>
                 <div class="job-status ${statusClass}">${job.status}</div>
             </div>
             
             ${progressHTML}
+            ${childJobsHTML}
             
             <div class="job-details">
                 <div class="job-detail">
@@ -246,15 +338,11 @@ function renderJob(job) {
                 </div>
                 <div class="job-detail">
                     <span class="job-detail-label">Text Processing</span>
-                    <span class="job-detail-value">${job.enable_text_processing ? '✅ Enabled' : '❌ Disabled'}</span>
+                    <span class="job-detail-value">${job.enable_text_processing ? 'Enabled' : 'Disabled'}</span>
                 </div>
                 <div class="job-detail">
                     <span class="job-detail-label">Speaker Detection</span>
-                    <span class="job-detail-value">${job.enable_speaker_detection ? '✅ Enabled' : '❌ Disabled'}</span>
-                </div>
-                <div class="job-detail">
-                    <span class="job-detail-label">Output File</span>
-                    <span class="job-detail-value">${escapeHtml(job.output_filename)}</span>
+                    <span class="job-detail-value">${job.enable_speaker_detection ? 'Enabled' : 'Disabled'}</span>
                 </div>
             </div>
             
@@ -265,6 +353,17 @@ function renderJob(job) {
             </div>
         </div>
     `;
+}
+
+function toggleChildJobs(header) {
+    const list = header.nextElementSibling;
+    if (list.style.display === 'none') {
+        list.style.display = 'block';
+        header.textContent = header.textContent.replace('▾', '▴');
+    } else {
+        list.style.display = 'none';
+        header.textContent = header.textContent.replace('▴', '▾');
+    }
 }
 
 // Job Actions
@@ -291,6 +390,30 @@ async function downloadJob(jobId, filename) {
         window.URL.revokeObjectURL(url);
         
         showToast('Download started', 'success');
+    } catch (error) {
+        showToast(`Download failed: ${error.message}`, 'error');
+    }
+}
+
+async function downloadBook(jobId, filename) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/download-book`);
+
+        if (!response.ok) {
+            throw new Error('Failed to download book');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        showToast('Book download started', 'success');
     } catch (error) {
         showToast(`Download failed: ${error.message}`, 'error');
     }
@@ -347,4 +470,8 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
 }

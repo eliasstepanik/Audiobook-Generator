@@ -34,7 +34,35 @@ class Database:
 
         # Create tables
         Base.metadata.create_all(bind=self.engine)
+
+        # Migrate: add new columns if missing (for existing databases)
+        self._migrate()
+
         logger.info(f"Database initialized: {database_url}")
+
+    def _migrate(self):
+        """Add new columns to existing tables if they don't exist."""
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+        if "audiobook_jobs" in inspector.get_table_names():
+            existing_columns = {
+                col["name"] for col in inspector.get_columns("audiobook_jobs")
+            }
+            new_columns = {
+                "parent_job_id": "VARCHAR(36)",
+                "chapter_index": "INTEGER",
+                "is_batch": "BOOLEAN DEFAULT 0",
+            }
+            with self.engine.begin() as conn:
+                for col_name, col_type in new_columns.items():
+                    if col_name not in existing_columns:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE audiobook_jobs ADD COLUMN {col_name} {col_type}"
+                            )
+                        )
+                        logger.info(f"Migration: added column {col_name}")
 
     @contextmanager
     def get_session(self) -> Session:

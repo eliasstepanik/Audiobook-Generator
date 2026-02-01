@@ -42,6 +42,7 @@
                 <div class="tabs">
                     <button class="tab-button active" data-tab="text">Text Input</button>
                     <button class="tab-button" data-tab="file">File Upload</button>
+                    <button class="tab-button" data-tab="book">Book Upload (ZIP)</button>
                 </div>
 
                 <!-- Text Input Tab -->
@@ -121,6 +122,46 @@
                         </div>
 
                         <button type="submit" class="btn btn-primary">Upload and Generate</button>
+                    </form>
+                </div>
+
+                <!-- Book Upload Tab -->
+                <div class="tab-content" id="book-tab">
+                    <form id="book-form">
+                        <div class="form-group">
+                            <label for="book-title">Book Title</label>
+                            <input type="text" id="book-title" placeholder="My Book (or leave blank to use ZIP filename)" maxlength="200">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="book-input">Upload ZIP File</label>
+                            <input type="file" id="book-input" accept=".zip" required>
+                            <small>ZIP containing .txt chapter files, ordered by name (e.g. 0000_intro.txt, 0001_chapter1.txt, ...)</small>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="book-text-processing" checked>
+                                    Enable Text Processing
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="book-speaker-detection" checked>
+                                    Enable Speaker Detection
+                                </label>
+                                <small>Characters are tracked across all chapters</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="book-webhook-url">Webhook URL (Optional)</label>
+                            <input type="url" id="book-webhook-url" placeholder="https://your-server.com/webhook">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Upload Book</button>
                     </form>
                 </div>
             </section>

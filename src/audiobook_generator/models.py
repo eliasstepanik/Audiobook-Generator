@@ -42,6 +42,11 @@ class AudiobookJob(Base):
     # Webhook
     webhook_url = Column(String(512), nullable=True)
 
+    # Batch/Book support: parent-child relationship
+    parent_job_id = Column(String(36), nullable=True, index=True)
+    chapter_index = Column(Integer, nullable=True)
+    is_batch = Column(Boolean, default=False)
+
     # Status
     status = Column(String(20), default=JobStatus.PENDING, index=True)
     progress = Column(Integer, default=0)
@@ -90,6 +95,9 @@ class AudiobookJob(Base):
             "webhook_url": self.webhook_url,
             "error_message": self.error_message,
             "output_path": self.output_path,
+            "parent_job_id": self.parent_job_id,
+            "chapter_index": self.chapter_index,
+            "is_batch": self.is_batch,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat()
