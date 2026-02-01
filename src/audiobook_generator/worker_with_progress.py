@@ -348,6 +348,7 @@ class AudiobookWorkerWithProgress:
                     continue
 
                 output_path = job_output_dir / "segments" / f"segment_{idx:04d}.wav"
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 wavs, sr = synthesizer.synthesize(
                     text=segment["text"],
