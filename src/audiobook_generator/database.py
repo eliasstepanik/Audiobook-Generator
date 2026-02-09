@@ -53,6 +53,11 @@ class Database:
                 "parent_job_id": "VARCHAR(36)",
                 "chapter_index": "INTEGER",
                 "is_batch": "BOOLEAN DEFAULT 0",
+                "detected_characters": "TEXT",
+                # Stuck detection and retry support
+                "retry_count": "INTEGER DEFAULT 0",
+                "max_retries": "INTEGER DEFAULT 3",
+                "last_heartbeat": "TIMESTAMP",
             }
             with self.engine.begin() as conn:
                 for col_name, col_type in new_columns.items():

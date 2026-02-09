@@ -4,6 +4,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import os
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +86,11 @@ class LLMClient:
         # Set provider-specific defaults
         if self.provider == LLMProvider.OLLAMA:
             self.model = model or "gpt-oss:20b"
-            self.base_url = (base_url or "http://192.168.178.166:11434/v1").rstrip("/")
+            self.base_url = (base_url or "http://localhost:11434/v1").rstrip("/")
         elif self.provider == LLMProvider.OPENAI:
             self.model = model or "gpt-4o"
             self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
             if not api_key:
-                import os
-
                 self.api_key = os.getenv("OPENAI_API_KEY")
                 if not self.api_key:
                     raise ValueError(
@@ -100,8 +100,6 @@ class LLMClient:
             self.model = model or "claude-sonnet-4-20250514"
             self.base_url = (base_url or "https://api.anthropic.com").rstrip("/")
             if not api_key:
-                import os
-
                 self.api_key = os.getenv("ANTHROPIC_API_KEY")
                 if not self.api_key:
                     raise ValueError(
@@ -117,8 +115,6 @@ class LLMClient:
 
     def _verify_connection(self) -> None:
         """Verify that the API endpoint is accessible."""
-        import requests
-
         try:
             if self.provider == LLMProvider.OLLAMA:
                 response = requests.get(
@@ -193,8 +189,6 @@ class LLMClient:
         **kwargs,
     ) -> ProcessingResult:
         """Process text via OpenAI-compatible API (works for Ollama and OpenAI)."""
-        import requests
-
         system_prompt = custom_prompt or self.system_prompt
 
         payload = {
@@ -268,8 +262,6 @@ class LLMClient:
         **kwargs,
     ) -> ProcessingResult:
         """Process text via Anthropic Messages API."""
-        import requests
-
         system_prompt = custom_prompt or self.system_prompt
 
         payload = {
@@ -348,8 +340,6 @@ class LLMClient:
 
     def health_check(self) -> bool:
         """Check if LLM service is accessible."""
-        import requests
-
         try:
             if self.provider == LLMProvider.OLLAMA:
                 response = requests.get(
@@ -367,6 +357,9 @@ class LLMClient:
                 # Simple test request
                 result = self.process_text("Say 'ok'", temperature=0, max_tokens=10)
                 return bool(result.processed_text)
+            else:
+                logger.warning(f"Unknown provider {self.provider} for health check")
+                return False
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return False

@@ -2,15 +2,15 @@
 
 from .text_processor import TextProcessor, TextBatch
 from .llm_client import LLMClient, ProcessingResult
-from .ollama_client import OllamaClient  # backward compat alias
 from .tts_synthesizer import TTSSynthesizer, VoiceConfig
 from .speaker_detector import SpeakerDetector
 from .audio_combiner import AudioCombiner
 from .multi_speaker_generator import MultiSpeakerAudiobookGenerator
 from .config import AudiobookConfig, LLMConfig, TTSConfig, VoiceDesignConfig
 
-# Backward compat aliases
-OllamaConfig = LLMConfig
+# Backward compatibility aliases
+OllamaClient = LLMClient  # deprecated: use LLMClient instead
+OllamaConfig = LLMConfig  # deprecated: use LLMConfig instead
 
 __version__ = "0.1.0"
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import uuid
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .models import AudiobookJob, JobStatus
 from .database import Database
@@ -138,6 +138,7 @@ class JobQueue:
         error_message: Optional[str] = None,
         output_path: Optional[str] = None,
         metadata: Optional[dict] = None,
+        detected_characters: Optional[str] = None,  # JSON string
     ):
         """
         Update job status.
@@ -151,6 +152,7 @@ class JobQueue:
             error_message: Error message if failed
             output_path: Path to output file
             metadata: Job metadata
+            detected_characters: JSON string of detected characters
         """
         with self.database.get_session() as session:
             job = (
@@ -183,6 +185,9 @@ class JobQueue:
             if metadata:
                 job.job_metadata = json.dumps(metadata)
 
+            if detected_characters is not None:
+                job.detected_characters = detected_characters
+
             # Update timestamps
             if status == JobStatus.PROCESSING and not job.started_at:
                 job.started_at = datetime.utcnow()
@@ -194,6 +199,29 @@ class JobQueue:
             session.commit()
 
             logger.info(f"Updated job {job_id}: {status} ({progress}%)")
+
+    def get_next_confirmed_job(self) -> Optional[AudiobookJob]:
+        """
+        Get next job that was AWAITING_REVIEW and has been confirmed (status set to PROCESSING).
+        Jobs transition: AWAITING_REVIEW → (user confirms) → PENDING → picked up here.
+
+        We use a convention: jobs with status PENDING that already have detected_characters
+        are confirmed jobs ready for phase 2.
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.status == JobStatus.PENDING)
+                .filter(AudiobookJob.parent_job_id == None)
+                .filter(AudiobookJob.detected_characters != None)
+                .order_by(AudiobookJob.created_at)
+                .first()
+            )
+
+            if job:
+                session.expunge(job)
+
+            return job
 
     def delete_job(self, job_id: str) -> bool:
         """
@@ -355,3 +383,164 @@ class JobQueue:
                 session.expunge(job)
 
             return jobs
+
+    def update_heartbeat(self, job_id: str) -> bool:
+        """
+        Update the heartbeat timestamp for a job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            True if updated, False if job not found
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.job_id == job_id)
+                .first()
+            )
+
+            if not job:
+                return False
+
+            job.last_heartbeat = datetime.utcnow()
+            session.commit()
+            return True
+
+    def get_stuck_jobs(self, stuck_threshold_seconds: int) -> List[AudiobookJob]:
+        """
+        Get jobs that appear to be stuck (PROCESSING status with stale heartbeat).
+
+        Args:
+            stuck_threshold_seconds: Number of seconds without heartbeat to consider stuck
+
+        Returns:
+            List of stuck jobs
+        """
+        threshold_time = datetime.utcnow() - timedelta(seconds=stuck_threshold_seconds)
+
+        with self.database.get_session() as session:
+            jobs = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.status == JobStatus.PROCESSING)
+                .filter(
+                    # Stuck if heartbeat is older than threshold OR never set (started but no heartbeat)
+                    (AudiobookJob.last_heartbeat < threshold_time)
+                    | (
+                        (AudiobookJob.last_heartbeat == None)
+                        & (AudiobookJob.started_at < threshold_time)
+                    )
+                )
+                .all()
+            )
+
+            for job in jobs:
+                session.expunge(job)
+
+            return jobs
+
+    def increment_retry_count(self, job_id: str) -> int:
+        """
+        Increment the retry count for a job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            New retry count, or -1 if job not found
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.job_id == job_id)
+                .first()
+            )
+
+            if not job:
+                return -1
+
+            job.retry_count = (job.retry_count or 0) + 1
+            new_count = job.retry_count
+            session.commit()
+            return new_count
+
+    def reset_job_for_retry(self, job_id: str) -> bool:
+        """
+        Reset a job for retry (set status back to PENDING, clear error, update heartbeat).
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            True if reset, False if job not found
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.job_id == job_id)
+                .first()
+            )
+
+            if not job:
+                return False
+
+            job.status = JobStatus.PENDING
+            job.error_message = None
+            job.last_heartbeat = None
+            job.started_at = None
+            job.progress = 0
+            job.progress_message = f"Retrying (attempt {(job.retry_count or 0) + 1})"
+            session.commit()
+
+            logger.info(f"Reset job {job_id} for retry (attempt {job.retry_count})")
+            return True
+
+    def get_stale_processing_jobs(self) -> List[AudiobookJob]:
+        """
+        Get jobs stuck in PROCESSING status (for recovery on startup).
+        These are jobs that were processing when the server crashed.
+
+        Returns:
+            List of stale jobs in PROCESSING status
+        """
+        with self.database.get_session() as session:
+            jobs = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.status == JobStatus.PROCESSING)
+                .all()
+            )
+
+            for job in jobs:
+                session.expunge(job)
+
+            return jobs
+
+    def mark_job_stuck(self, job_id: str, error_message: str) -> bool:
+        """
+        Mark a job as failed due to being stuck.
+
+        Args:
+            job_id: Job ID
+            error_message: Description of why job was considered stuck
+
+        Returns:
+            True if marked, False if job not found
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.job_id == job_id)
+                .first()
+            )
+
+            if not job:
+                return False
+
+            job.status = JobStatus.FAILED
+            job.error_message = error_message
+            job.completed_at = datetime.utcnow()
+            session.commit()
+
+            logger.warning(f"Marked job {job_id} as stuck/failed: {error_message}")
+            return True

@@ -3,17 +3,19 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, HttpUrl
-from typing import Optional, List
+from pydantic import BaseModel, HttpUrl, field_validator
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 import logging
 import zipfile
 import io
-import tempfile
+import json
+import re
 
 from .database import get_database
 from .job_queue import JobQueue
 from .models import JobStatus
+from .config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,25 @@ database = get_database()
 job_queue = JobQueue(database)
 
 
+# Get config for validation limits
+config = load_config()
+
+# Regex for sanitizing filenames (removes dangerous characters)
+UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_filename(name: str) -> str:
+    """Sanitize a filename by removing unsafe characters."""
+    # Remove dangerous characters
+    safe = UNSAFE_FILENAME_CHARS.sub("_", name)
+    # Collapse multiple underscores
+    safe = re.sub(r"_+", "_", safe)
+    # Remove leading/trailing underscores and whitespace
+    safe = safe.strip("_ ")
+    # Limit length
+    return safe[:200] if safe else "untitled"
+
+
 # Pydantic models for requests/responses
 class CreateJobRequest(BaseModel):
     """Request to create a new audiobook job."""
@@ -47,6 +68,37 @@ class CreateJobRequest(BaseModel):
     enable_speaker_detection: bool = True
     output_filename: str = "audiobook.mp3"
     webhook_url: Optional[HttpUrl] = None
+
+    @field_validator("text")
+    @classmethod
+    def validate_text_length(cls, v: str) -> str:
+        """Validate text is not empty and within size limits."""
+        if not v or not v.strip():
+            raise ValueError("Text cannot be empty")
+        max_length = config.security.max_input_length
+        if len(v) > max_length:
+            raise ValueError(
+                f"Text exceeds maximum length of {max_length:,} characters"
+            )
+        return v
+
+    @field_validator("title")
+    @classmethod
+    def sanitize_title(cls, v: Optional[str]) -> Optional[str]:
+        """Sanitize title for safe filesystem use."""
+        if v is None:
+            return None
+        return sanitize_filename(v)
+
+    @field_validator("output_filename")
+    @classmethod
+    def sanitize_output_filename(cls, v: str) -> str:
+        """Sanitize output filename for safe filesystem use."""
+        sanitized = sanitize_filename(v)
+        # Ensure it has .mp3 extension
+        if not sanitized.lower().endswith(".mp3"):
+            sanitized += ".mp3"
+        return sanitized
 
 
 class JobResponse(BaseModel):
@@ -65,6 +117,7 @@ class JobResponse(BaseModel):
     parent_job_id: Optional[str] = None
     chapter_index: Optional[int] = None
     is_batch: bool = False
+    detected_characters: Optional[List[Dict[str, Any]]] = None
     child_jobs: Optional[List["JobResponse"]] = None
     created_at: Optional[str]
     started_at: Optional[str]
@@ -329,6 +382,193 @@ def delete_job(job_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete job")
 
 
+# =========================================================================
+# Character review endpoints
+# =========================================================================
+
+
+@app.get("/jobs/{job_id}/characters")
+def get_characters(job_id: str):
+    """Get detected characters for a job (available after AWAITING_REVIEW)."""
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.detected_characters:
+        raise HTTPException(status_code=400, detail="No characters detected yet")
+
+    characters = json.loads(job.detected_characters)
+    # Check which characters have uploaded voice clones and ref_text
+    for char in characters:
+        clone_dir = Path("./data/output") / job_id / "voice_clones"
+        clone_path = clone_dir / f"{char['id']}.wav"
+        ref_text_path = clone_dir / f"{char['id']}_ref_text.txt"
+        char["has_voice_clone"] = clone_path.exists()
+        if ref_text_path.exists():
+            char["ref_text"] = ref_text_path.read_text(encoding="utf-8")
+        elif "ref_text" not in char:
+            char["ref_text"] = ""
+
+    return {"job_id": job_id, "characters": characters}
+
+
+@app.put("/jobs/{job_id}/characters")
+def update_characters(job_id: str, characters: List[Dict[str, Any]]):
+    """
+    Update detected characters for a job (edit names, descriptions, voice traits).
+    Only allowed when job is in AWAITING_REVIEW status.
+    """
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.AWAITING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only edit characters when status is awaiting_review, current: {job.status}",
+        )
+
+    # Validate structure
+    for char in characters:
+        if "id" not in char or "name" not in char:
+            raise HTTPException(
+                status_code=400,
+                detail="Each character must have 'id' and 'name' fields",
+            )
+
+    job_queue.update_job_status(
+        job_id,
+        JobStatus.AWAITING_REVIEW,
+        detected_characters=json.dumps(characters),
+    )
+
+    return {"job_id": job_id, "characters": characters}
+
+
+@app.post("/jobs/{job_id}/characters/{character_id}/voice-clone")
+async def upload_voice_clone(
+    job_id: str,
+    character_id: str,
+    file: UploadFile = File(...),
+    ref_text: Optional[str] = Form(None),
+):
+    """
+    Upload a voice clone WAV file for a specific character.
+    Optionally include ref_text (transcript of the audio sample) for better voice cloning.
+    Only allowed when job is in AWAITING_REVIEW status.
+    """
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.AWAITING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only upload voice clones when status is awaiting_review",
+        )
+
+    # Verify character exists
+    if not job.detected_characters:
+        raise HTTPException(status_code=400, detail="No characters detected")
+
+    characters = json.loads(job.detected_characters)
+    char_ids = [c["id"] for c in characters]
+    if character_id not in char_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character '{character_id}' not found. Available: {char_ids}",
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".wav"):
+        raise HTTPException(status_code=400, detail="File must be a .wav audio file")
+
+    # Save voice clone
+    clone_dir = Path("./data/output") / job_id / "voice_clones"
+    clone_dir.mkdir(parents=True, exist_ok=True)
+    clone_path = clone_dir / f"{character_id}.wav"
+
+    content = await file.read()
+    with open(clone_path, "wb") as f:
+        f.write(content)
+
+    # Save reference text alongside the WAV if provided
+    ref_text_path = clone_dir / f"{character_id}_ref_text.txt"
+    if ref_text and ref_text.strip():
+        with open(ref_text_path, "w", encoding="utf-8") as f:
+            f.write(ref_text.strip())
+        logger.info(f"Reference text saved for {character_id}: {len(ref_text)} chars")
+    elif ref_text_path.exists():
+        ref_text_path.unlink()  # Remove stale ref_text if re-uploading without one
+
+    logger.info(
+        f"Voice clone uploaded for {character_id} in job {job_id}: {len(content)} bytes"
+    )
+
+    return {
+        "job_id": job_id,
+        "character_id": character_id,
+        "voice_clone_path": str(clone_path),
+        "has_ref_text": bool(ref_text and ref_text.strip()),
+        "size_bytes": len(content),
+    }
+
+
+@app.delete("/jobs/{job_id}/characters/{character_id}/voice-clone")
+def delete_voice_clone(job_id: str, character_id: str):
+    """Remove an uploaded voice clone for a character."""
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    clone_dir = Path("./data/output") / job_id / "voice_clones"
+    clone_path = clone_dir / f"{character_id}.wav"
+    ref_text_path = clone_dir / f"{character_id}_ref_text.txt"
+    if clone_path.exists():
+        clone_path.unlink()
+        if ref_text_path.exists():
+            ref_text_path.unlink()
+        return {"job_id": job_id, "character_id": character_id, "deleted": True}
+
+    raise HTTPException(
+        status_code=404, detail="No voice clone found for this character"
+    )
+
+
+@app.post("/jobs/{job_id}/confirm")
+def confirm_characters(job_id: str):
+    """
+    Confirm characters and resume processing.
+    Transitions job from AWAITING_REVIEW → PENDING (with detected_characters set),
+    which the worker picks up for phase 2.
+    """
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.AWAITING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only confirm when status is awaiting_review, current: {job.status}",
+        )
+
+    if not job.detected_characters:
+        raise HTTPException(status_code=400, detail="No characters to confirm")
+
+    # Set back to PENDING - the worker's get_next_confirmed_job() will pick it up
+    job_queue.update_job_status(
+        job_id,
+        JobStatus.PENDING,
+        progress=50,
+        progress_message="Characters confirmed, waiting to resume...",
+    )
+
+    return {
+        "job_id": job_id,
+        "status": "confirmed",
+        "message": "Processing will resume shortly",
+    }
+
+
 @app.post("/jobs/upload-book", status_code=201)
 async def create_batch_job_from_zip(
     file: UploadFile = File(...),
@@ -476,6 +716,7 @@ def get_stats():
             "total_jobs": job_queue.get_job_count(),
             "pending": job_queue.get_job_count(JobStatus.PENDING),
             "processing": job_queue.get_job_count(JobStatus.PROCESSING),
+            "awaiting_review": job_queue.get_job_count(JobStatus.AWAITING_REVIEW),
             "completed": job_queue.get_job_count(JobStatus.COMPLETED),
             "failed": job_queue.get_job_count(JobStatus.FAILED),
             "cancelled": job_queue.get_job_count(JobStatus.CANCELLED),

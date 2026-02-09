@@ -100,7 +100,7 @@ class LLMConfig:
     )
     base_url: str = field(
         default_factory=lambda: _get(
-            "llm", "base_url", "LLM_BASE_URL", "http://192.168.178.166:11434/v1"
+            "llm", "base_url", "LLM_BASE_URL", "http://localhost:11434/v1"
         )
     )
     api_key: Optional[str] = field(
@@ -245,6 +245,54 @@ class DatabaseConfig:
 
 
 @dataclass
+class WorkerConfig:
+    """Configuration for background worker and job processing."""
+
+    # Job timeout in seconds (default: 30 minutes)
+    job_timeout: int = field(
+        default_factory=lambda: _get(
+            "worker", "job_timeout", "WORKER_JOB_TIMEOUT", 1800, int
+        )
+    )
+    # Heartbeat interval in seconds (how often worker updates job heartbeat)
+    heartbeat_interval: int = field(
+        default_factory=lambda: _get(
+            "worker", "heartbeat_interval", "WORKER_HEARTBEAT_INTERVAL", 30, int
+        )
+    )
+    # Stuck detection threshold in seconds (job considered stuck if no heartbeat for this long)
+    stuck_threshold: int = field(
+        default_factory=lambda: _get(
+            "worker", "stuck_threshold", "WORKER_STUCK_THRESHOLD", 120, int
+        )
+    )
+    # Maximum number of retries for failed/stuck jobs
+    max_retries: int = field(
+        default_factory=lambda: _get(
+            "worker", "max_retries", "WORKER_MAX_RETRIES", 3, int
+        )
+    )
+    # Poll interval in seconds
+    poll_interval: int = field(
+        default_factory=lambda: _get(
+            "worker", "poll_interval", "WORKER_POLL_INTERVAL", 5, int
+        )
+    )
+    # TTS operation timeout in seconds (for individual synthesis calls)
+    tts_operation_timeout: int = field(
+        default_factory=lambda: _get(
+            "worker", "tts_operation_timeout", "WORKER_TTS_TIMEOUT", 300, int
+        )
+    )
+    # Enable automatic recovery of stale jobs on startup
+    recover_stale_jobs: bool = field(
+        default_factory=lambda: _get(
+            "worker", "recover_stale_jobs", "WORKER_RECOVER_STALE", True, bool
+        )
+    )
+
+
+@dataclass
 class AudiobookConfig:
     """Complete configuration for audiobook generation."""
 
@@ -256,6 +304,7 @@ class AudiobookConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    worker: WorkerConfig = field(default_factory=WorkerConfig)
 
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "AudiobookConfig":

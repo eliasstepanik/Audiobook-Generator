@@ -5,6 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from datetime import datetime
 from enum import Enum
+import json
 
 Base = declarative_base()
 
@@ -14,6 +15,7 @@ class JobStatus(str, Enum):
 
     PENDING = "pending"
     PROCESSING = "processing"
+    AWAITING_REVIEW = "awaiting_review"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -59,10 +61,18 @@ class AudiobookJob(Base):
         Text, nullable=True
     )  # JSON - renamed from 'metadata' to avoid SQLAlchemy conflict
 
+    # Detected characters (JSON) - populated after speaker detection, editable by user
+    detected_characters = Column(Text, nullable=True)
+
     # Detailed progress tracking (JSON)
     progress_details = Column(
         Text, nullable=True
     )  # JSON with batches, speakers, segments
+
+    # Retry tracking
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    last_heartbeat = Column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -71,8 +81,6 @@ class AudiobookJob(Base):
 
     def to_dict(self):
         """Convert to dictionary."""
-        import json
-
         # Parse progress_details if it's JSON string
         progress_details = None
         if self.progress_details:
@@ -80,6 +88,14 @@ class AudiobookJob(Base):
                 progress_details = json.loads(self.progress_details)
             except (json.JSONDecodeError, TypeError):
                 progress_details = None
+
+        # Parse detected_characters if it's JSON string
+        detected_characters = None
+        if self.detected_characters:
+            try:
+                detected_characters = json.loads(self.detected_characters)
+            except (json.JSONDecodeError, TypeError):
+                detected_characters = None
 
         return {
             "job_id": self.job_id,
@@ -98,6 +114,12 @@ class AudiobookJob(Base):
             "parent_job_id": self.parent_job_id,
             "chapter_index": self.chapter_index,
             "is_batch": self.is_batch,
+            "detected_characters": detected_characters,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "last_heartbeat": self.last_heartbeat.isoformat()
+            if self.last_heartbeat
+            else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat()

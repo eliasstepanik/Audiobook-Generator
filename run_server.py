@@ -38,7 +38,13 @@ def run_worker():
         llm_api_key=config.llm.api_key,
         tts_device=config.tts.device,
         tts_dtype=config.tts.dtype,
-        poll_interval=5,
+        poll_interval=config.worker.poll_interval,
+        # Stuck detection and retry settings
+        job_timeout=config.worker.job_timeout,
+        heartbeat_interval=config.worker.heartbeat_interval,
+        stuck_threshold=config.worker.stuck_threshold,
+        max_retries=config.worker.max_retries,
+        recover_stale_jobs=config.worker.recover_stale_jobs,
     )
 
     worker.run()

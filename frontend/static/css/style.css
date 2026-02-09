@@ -538,6 +538,242 @@ header h1 {
 .chapter-progress-bar .progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+/* Awaiting review status */
+.status-awaiting_review {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* Character Review Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #a0aec0;
+    padding: 4px 8px;
+}
+
+.modal-close:hover {
+    color: #4a5568;
+}
+
+.modal-body {
+    padding: 16px 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-subtitle {
+    color: #718096;
+    font-size: 0.85rem;
+    margin: 0 0 16px 0;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid #e2e8f0;
+}
+
+/* Character cards in modal */
+.character-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+}
+
+.character-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.character-number {
+    font-weight: 700;
+    color: #764ba2;
+    font-size: 0.85rem;
+    min-width: 20px;
+}
+
+.char-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 4px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+}
+
+.voice-badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    letter-spacing: 0.5px;
+}
+
+.voice-badge.generated {
+    background: #e2e8f0;
+    color: #4a5568;
+}
+
+.voice-badge.clone {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.character-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.field-group label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #718096;
+    margin-bottom: 2px;
+    display: block;
+}
+
+.field-group input[type="text"] {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.voice-upload-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.voice-upload-row input[type="file"] {
+    font-size: 0.8rem;
+    flex: 1;
+}
+
+.char-ref-text {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    resize: vertical;
+    min-height: 48px;
+    transition: border-color 0.2s;
+}
+
+.char-ref-text:focus {
+    border-color: #4f46e5;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+
+.field-hint {
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-weight: 400;
+}
+
+/* Review prompt in job card */
+.review-prompt {
+    background: #fffbeb;
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 10px 0;
+}
+
+.review-prompt-header {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #92400e;
+    margin-bottom: 8px;
+}
+
+.review-char-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.review-char-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 0.82rem;
+}
+
+.review-char-name {
+    font-weight: 600;
+    color: #4a5568;
+    min-width: 100px;
+}
+
+.review-char-traits {
+    color: #718096;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 0.75rem;
     border-radius: 2px;
     transition: width 0.3s;
 }

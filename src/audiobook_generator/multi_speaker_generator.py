@@ -1,10 +1,11 @@
 """Multi-speaker audiobook generator with complete pipeline."""
 
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import logging
 from tqdm import tqdm
 import json
+import soundfile as sf
 
 from .text_processor import TextProcessor
 from .llm_client import LLMClient
@@ -22,7 +23,7 @@ class MultiSpeakerAudiobookGenerator:
         self,
         llm_provider: str = "ollama",
         llm_model: str = "gpt-oss:20b",
-        llm_base_url: str = "http://192.168.178.166:11434/v1",
+        llm_base_url: str = "http://localhost:11434/v1",
         llm_api_key: Optional[str] = None,
         max_chars_per_batch: int = 16000,
         tts_device: str = "cuda:0",
@@ -92,8 +93,8 @@ class MultiSpeakerAudiobookGenerator:
 
     def generate(
         self,
-        input_file: str,
-        output_dir: str,
+        input_file: Union[str, Path],
+        output_dir: Union[str, Path],
         output_filename: str = "audiobook.mp3",
         save_intermediate: bool = True,
         tts_batch_size: int = 5,
@@ -120,22 +121,22 @@ class MultiSpeakerAudiobookGenerator:
         Returns:
             Dictionary with generation metadata
         """
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
 
-        segments_dir = output_dir / "segments"
+        segments_dir = output_path / "segments"
         segments_dir.mkdir(exist_ok=True)
 
         logger.info("=" * 60)
         logger.info("AUDIOBOOK GENERATION PIPELINE")
         logger.info("=" * 60)
         logger.info(f"Input: {input_file}")
-        logger.info(f"Output: {output_dir / output_filename}")
+        logger.info(f"Output: {output_path / output_filename}")
         logger.info("")
 
         # STEP 1: Read and batch text
         logger.info("STEP 1: Reading and batching text...")
-        batches = self.text_processor.process_file(input_file)
+        batches = self.text_processor.process_file(str(input_file))
         logger.info(f"✓ Created {len(batches)} batches\n")
 
         # STEP 2: Process through LLM
@@ -153,7 +154,7 @@ class MultiSpeakerAudiobookGenerator:
             full_processed_text = " ".join(processed_texts)
 
             if save_intermediate:
-                processed_file = output_dir / "processed_text.txt"
+                processed_file = output_path / "processed_text.txt"
                 with open(processed_file, "w", encoding="utf-8") as f:
                     f.write(full_processed_text)
                 logger.info(f"✓ Processed text saved to: {processed_file}")
@@ -179,7 +180,7 @@ class MultiSpeakerAudiobookGenerator:
                 )
 
             if save_intermediate:
-                speakers_file = output_dir / "detected_speakers.json"
+                speakers_file = output_path / "detected_speakers.json"
                 with open(speakers_file, "w", encoding="utf-8") as f:
                     json.dump(detected_speakers, f, indent=2)
                 logger.info(f"✓ Speakers saved to: {speakers_file}")
@@ -227,8 +228,10 @@ class MultiSpeakerAudiobookGenerator:
             and self.speaker_detector
             and len(detected_speakers) > 1
         ):
-            segment_assignments = self.speaker_detector.assign_speakers_to_segments(
-                processed_texts, detected_speakers
+            # Combine processed texts for speaker assignment
+            combined_text = "\n\n".join(processed_texts)
+            segment_assignments = self.speaker_detector.split_text_into_segments(
+                combined_text, detected_speakers
             )
         else:
             # Single speaker mode
@@ -251,7 +254,7 @@ class MultiSpeakerAudiobookGenerator:
             speaker_segments[speaker_id].append(assignment)
 
         # Track all audio files in order
-        all_audio_files = [None] * len(segment_assignments)
+        all_audio_files: list[Optional[str]] = [None] * len(segment_assignments)
 
         # Process each speaker's segments
         for speaker_id, segments in speaker_segments.items():
@@ -261,6 +264,12 @@ class MultiSpeakerAudiobookGenerator:
             if not synthesizer:
                 logger.warning(f"  No synthesizer for {speaker_id}, using narrator")
                 synthesizer = self.speaker_synthesizers.get("narrator")
+
+            if synthesizer is None:
+                logger.error(
+                    f"  No narrator synthesizer available, skipping {speaker_id}"
+                )
+                continue
 
             # Process in batches
             for i in range(0, len(segments), tts_batch_size):
@@ -275,24 +284,25 @@ class MultiSpeakerAudiobookGenerator:
                     zip(batch, wavs if isinstance(wavs, list) else [wavs])
                 ):
                     seg_idx = segment["segment_index"]
-                    output_path = (
+                    segment_path = (
                         segments_dir / f"segment_{seg_idx:04d}_{speaker_id}.wav"
                     )
 
-                    import soundfile as sf
+                    sf.write(str(segment_path), audio, sr)
 
-                    sf.write(str(output_path), audio, sr)
-
-                    all_audio_files[seg_idx] = str(output_path)
+                    all_audio_files[seg_idx] = str(segment_path)
 
         logger.info(f"✓ Generated {len(all_audio_files)} audio segments\n")
 
         # STEP 7: Combine into single MP3
         logger.info("STEP 7: Combining audio into final audiobook...")
-        final_output = output_dir / output_filename
+        final_output = output_path / output_filename
+
+        # Filter out any None values (segments that failed to generate)
+        valid_audio_files: List[str] = [f for f in all_audio_files if f is not None]
 
         self.audio_combiner.combine_wav_files(
-            input_files=all_audio_files, output_path=str(final_output)
+            input_files=valid_audio_files, output_path=str(final_output)
         )
 
         logger.info(f"✓ Final audiobook: {final_output}\n")
@@ -314,7 +324,7 @@ class MultiSpeakerAudiobookGenerator:
         }
 
         if save_intermediate:
-            metadata_path = output_dir / "metadata.json"
+            metadata_path = output_path / "metadata.json"
             with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2)
             logger.info(f"Metadata saved to: {metadata_path}")

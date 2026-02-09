@@ -179,6 +179,7 @@ async function loadStats() {
         document.getElementById('stat-total').textContent = stats.total_jobs;
         document.getElementById('stat-pending').textContent = stats.pending;
         document.getElementById('stat-processing').textContent = stats.processing;
+        document.getElementById('stat-review').textContent = stats.awaiting_review || 0;
         document.getElementById('stat-completed').textContent = stats.completed;
         document.getElementById('stat-failed').textContent = stats.failed;
     } catch (error) {
@@ -242,6 +243,14 @@ function renderJob(job) {
         }
     }
 
+    if (job.status === 'awaiting_review') {
+        actionsHTML += `
+            <button class="btn btn-primary" onclick="openCharacterReview('${job.job_id}')">
+                Review Characters
+            </button>
+        `;
+    }
+
     if (job.status === 'pending' || job.status === 'processing') {
         actionsHTML += `
             <button class="btn btn-danger" onclick="deleteJob('${job.job_id}')">
@@ -269,6 +278,39 @@ function renderJob(job) {
                 <div class="progress-text">${job.progress}% - ${escapeHtml(progressMessage)}</div>
             </div>
         `;
+    }
+
+    // Awaiting review: show detected characters summary
+    let reviewHTML = '';
+    if (job.status === 'awaiting_review') {
+        if (job.detected_characters && job.detected_characters.length > 0) {
+            const chars = job.detected_characters;
+            const charSummary = chars.map(c =>
+                `<div class="review-char-row">
+                    <span class="review-char-name">${escapeHtml(c.name)}</span>
+                    <span class="review-char-traits">${escapeHtml(c.voice_characteristics || c.description || '')}</span>
+                </div>`
+            ).join('');
+
+            reviewHTML = `
+                <div class="review-prompt">
+                    <div class="review-prompt-header">
+                        ${chars.length} character${chars.length !== 1 ? 's' : ''} detected — review before continuing
+                    </div>
+                    <div class="review-char-list">
+                        ${charSummary}
+                    </div>
+                </div>
+            `;
+        } else {
+            reviewHTML = `
+                <div class="review-prompt">
+                    <div class="review-prompt-header">
+                        ${escapeHtml(job.progress_message || 'Characters detected — click Review to continue')}
+                    </div>
+                </div>
+            `;
+        }
     }
 
     let errorHTML = '';
@@ -329,6 +371,7 @@ function renderJob(job) {
             </div>
             
             ${progressHTML}
+            ${reviewHTML}
             ${childJobsHTML}
             
             <div class="job-details">
@@ -474,4 +517,200 @@ function escapeHtml(text) {
 
 function escapeAttr(text) {
     return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+// =========================================================================
+// Character Review
+// =========================================================================
+
+async function openCharacterReview(jobId) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters`);
+        if (!response.ok) throw new Error('Failed to load characters');
+        const data = await response.json();
+
+        showCharacterModal(jobId, data.characters);
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+}
+
+function showCharacterModal(jobId, characters) {
+    // Remove existing modal
+    const existing = document.getElementById('character-modal');
+    if (existing) existing.remove();
+
+    const characterRows = characters.map((char, idx) => `
+        <div class="character-card" data-character-id="${char.id}">
+            <div class="character-header">
+                <span class="character-number">${idx + 1}</span>
+                <input type="text" class="char-name" value="${escapeAttr(char.name)}" placeholder="Name">
+                <span class="voice-badge ${char.has_voice_clone ? 'clone' : 'generated'}">
+                    ${char.has_voice_clone ? 'CLONE' : 'GENERATED'}
+                </span>
+            </div>
+            <div class="character-fields">
+                <div class="field-group">
+                    <label>Description</label>
+                    <input type="text" class="char-description" value="${escapeAttr(char.description || '')}" placeholder="Brief character description">
+                </div>
+                <div class="field-group">
+                    <label>Voice Characteristics</label>
+                    <input type="text" class="char-voice" value="${escapeAttr(char.voice_characteristics || '')}" placeholder="e.g. Female, 25, high-pitched, fast pace">
+                </div>
+                <div class="field-group voice-upload-group">
+                    <label>Voice Clone (WAV)</label>
+                    <div class="voice-upload-row">
+                        <input type="file" class="char-voice-file" accept=".wav" data-char-id="${char.id}">
+                        <button class="btn btn-sm btn-secondary" onclick="uploadVoiceClone('${jobId}', '${char.id}', this)">
+                            Upload
+                        </button>
+                        ${char.has_voice_clone ? `<button class="btn btn-sm btn-danger" onclick="removeVoiceClone('${jobId}', '${char.id}', this)">Remove</button>` : ''}
+                    </div>
+                </div>
+                <div class="field-group">
+                    <label>Reference Text <span class="field-hint">(transcript of the WAV sample for better voice cloning)</span></label>
+                    <textarea class="char-ref-text" data-char-id="${char.id}" rows="2" placeholder="Type the exact words spoken in the voice sample...">${escapeAttr(char.ref_text || '')}</textarea>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'character-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Review Characters</h2>
+                <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-subtitle">Edit character details or upload voice clone WAV files. Click Confirm to continue processing.</p>
+                <div class="characters-list">
+                    ${characterRows}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCharacterModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveAndConfirmCharacters('${jobId}')">
+                    Save & Confirm
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+}
+
+function closeCharacterModal() {
+    const modal = document.getElementById('character-modal');
+    if (modal) modal.remove();
+}
+
+async function uploadVoiceClone(jobId, characterId, btn) {
+    const card = btn.closest('.character-card');
+    const fileInput = card.querySelector(`.char-voice-file[data-char-id="${characterId}"]`);
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showToast('Select a WAV file first', 'error');
+        return;
+    }
+
+    const refTextInput = card.querySelector(`.char-ref-text[data-char-id="${characterId}"]`);
+    const refText = refTextInput ? refTextInput.value.trim() : '';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    if (refText) {
+        formData.append('ref_text', refText);
+    }
+
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Uploading...';
+
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters/${characterId}/voice-clone`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Upload failed');
+        }
+
+        showToast(`Voice clone uploaded for ${characterId}`, 'success');
+
+        // Update badge
+        const badge = card.querySelector('.voice-badge');
+        badge.className = 'voice-badge clone';
+        badge.textContent = 'CLONE';
+
+        btn.textContent = 'Upload';
+        btn.disabled = false;
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+        btn.textContent = 'Upload';
+        btn.disabled = false;
+    }
+}
+
+async function removeVoiceClone(jobId, characterId, btn) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters/${characterId}/voice-clone`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) throw new Error('Failed to remove voice clone');
+
+        showToast('Voice clone removed', 'success');
+
+        // Update badge
+        const card = btn.closest('.character-card');
+        const badge = card.querySelector('.voice-badge');
+        badge.className = 'voice-badge generated';
+        badge.textContent = 'GENERATED';
+        btn.remove();
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+}
+
+async function saveAndConfirmCharacters(jobId) {
+    const modal = document.getElementById('character-modal');
+    const cards = modal.querySelectorAll('.character-card');
+
+    const characters = Array.from(cards).map(card => ({
+        id: card.dataset.characterId,
+        name: card.querySelector('.char-name').value,
+        description: card.querySelector('.char-description').value,
+        voice_characteristics: card.querySelector('.char-voice').value,
+        ref_text: card.querySelector('.char-ref-text')?.value?.trim() || '',
+    }));
+
+    try {
+        // Save edited characters
+        const saveResponse = await fetch(`${API_BASE}/jobs/${jobId}/characters`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(characters),
+        });
+
+        if (!saveResponse.ok) throw new Error('Failed to save characters');
+
+        // Confirm and resume
+        const confirmResponse = await fetch(`${API_BASE}/jobs/${jobId}/confirm`, {
+            method: 'POST',
+        });
+
+        if (!confirmResponse.ok) throw new Error('Failed to confirm');
+
+        showToast('Characters confirmed! Processing will resume.', 'success');
+        closeCharacterModal();
+        loadJobs();
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
 }

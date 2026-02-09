@@ -166,8 +166,8 @@ class AudioCombiner:
                 # Add ID3 tag if not exists
                 try:
                     audio.add_tags()
-                except:
-                    pass
+                except Exception:
+                    pass  # Tags may already exist
 
                 if title:
                     audio.tags.add(TIT2(encoding=3, text=title))

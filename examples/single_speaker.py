@@ -19,7 +19,7 @@ def main():
     # Initialize with speaker detection disabled
     generator = MultiSpeakerAudiobookGenerator(
         ollama_model="gpt-oss-16k:120b",
-        ollama_base_url="https://192.168.178.166/v1",
+        ollama_base_url="http://localhost:11434/v1",
         max_chars_per_batch=16000,
         tts_device="cuda:0",
         enable_text_processing=True,
