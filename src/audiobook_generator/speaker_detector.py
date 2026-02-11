@@ -75,6 +75,55 @@ IMPORTANT RULES:
 - Keep IDs as simple lowercase with underscores (e.g., "john_smith")
 - Return ONLY valid JSON, no markdown formatting, no extra text"""
 
+    def _get_incremental_detection_prompt(
+        self, existing_speakers: List[Dict[str, str]]
+    ) -> str:
+        """Get prompt for detecting NEW speakers, given already-known speakers."""
+        existing_list = "\n".join(
+            f"- {s['id']}: {s['name']} ({s.get('description', 'no description')})"
+            for s in existing_speakers
+        )
+
+        return f"""You are an expert at analyzing narrative text and identifying speakers/characters for audiobook narration.
+
+ALREADY DETECTED SPEAKERS (do NOT include these again):
+{existing_list}
+
+Your task is to:
+1. Identify any NEW distinct speakers/characters who have dialogue in THIS text section
+2. ONLY return characters that are NOT already in the list above
+3. For each NEW speaker, provide DETAILED voice characteristics
+
+If you find NO new speakers, return: {{"speakers": []}}
+
+Return ONLY a valid JSON object in this exact format:
+{{
+  "speakers": [
+    {{
+      "id": "new_character_name",
+      "name": "New Character Name",
+      "description": "Brief character description",
+      "voice_characteristics": "Female, 25 years old, high-pitched, fast pace, clear articulation"
+    }}
+  ]
+}}
+
+CRITICAL - Include these DETAILED PARAMETERS for each NEW speaker:
+- Gender: male, female, or neutral
+- Age: specific age (e.g., "25 years old", "elderly", "child")
+- Pitch: very low-pitched, low-pitched, normal pitch, high-pitched, very high-pitched
+- Pace: very slow, slow, normal, fast, very fast
+- Clarity: clear, slightly unclear (if mumbled/slurred speech)
+
+DO NOT include mood, tone, or emotional state in voice_characteristics.
+
+IMPORTANT RULES:
+- Do NOT include any speaker that matches names/IDs in the ALREADY DETECTED list
+- Only return genuinely NEW characters with speaking parts
+- Keep IDs as simple lowercase with underscores
+- Return ONLY valid JSON, no markdown formatting, no extra text
+- If no new speakers found, return {{"speakers": []}}"""
+
     def detect_speakers(
         self, processed_text: str, max_analysis_chars: int = 50000
     ) -> List[Dict[str, str]]:
@@ -103,7 +152,7 @@ IMPORTANT RULES:
             batch_index=0,
             custom_prompt=self.speaker_detection_prompt,
             temperature=0.1,  # Low temperature for more consistent JSON output
-            max_tokens=2000,  # Enough for JSON response with multiple speakers
+            max_tokens=4000,  # Increased for more speakers
         )
 
         # Parse JSON response
@@ -172,6 +221,144 @@ IMPORTANT RULES:
                     ),
                 }
             ]
+
+    def detect_speakers_iterative(
+        self,
+        text_chunks: List[str],
+        batch_size_chars: int = 50000,
+        progress_callback: Optional[callable] = None,
+    ) -> List[Dict[str, str]]:
+        """
+        Detect speakers iteratively across multiple text chunks.
+
+        Processes the entire text in batches, accumulating new characters
+        as they are discovered. This ensures all characters throughout
+        a book are detected, not just those in the first section.
+
+        Args:
+            text_chunks: List of text chunks (e.g., chapters) to analyze
+            batch_size_chars: Max characters per LLM call
+            progress_callback: Optional callback(batch_num, total_batches, speakers_found)
+
+        Returns:
+            List of all detected speaker dictionaries
+        """
+        all_speakers: List[Dict[str, str]] = []
+        seen_ids: set = set()
+
+        # Combine all chunks into one text for batching
+        full_text = "\n\n".join(text_chunks)
+        total_chars = len(full_text)
+
+        # Calculate number of batches
+        num_batches = (total_chars + batch_size_chars - 1) // batch_size_chars
+        logger.info(
+            f"Iterative speaker detection: {total_chars} chars in {num_batches} batches"
+        )
+
+        for batch_idx in range(num_batches):
+            start = batch_idx * batch_size_chars
+            end = min(start + batch_size_chars, total_chars)
+            batch_text = full_text[start:end]
+
+            logger.info(
+                f"Processing batch {batch_idx + 1}/{num_batches} (chars {start}-{end})"
+            )
+
+            if batch_idx == 0:
+                # First batch: use standard detection
+                speakers = self.detect_speakers(
+                    batch_text, max_analysis_chars=batch_size_chars
+                )
+                for s in speakers:
+                    if s["id"] not in seen_ids:
+                        all_speakers.append(s)
+                        seen_ids.add(s["id"])
+            else:
+                # Subsequent batches: look for NEW speakers only
+                new_speakers = self._detect_new_speakers(batch_text, all_speakers)
+                for s in new_speakers:
+                    if s["id"] not in seen_ids:
+                        all_speakers.append(s)
+                        seen_ids.add(s["id"])
+                        logger.info(
+                            f"New speaker found in batch {batch_idx + 1}: {s['name']}"
+                        )
+
+            if progress_callback:
+                progress_callback(batch_idx + 1, num_batches, len(all_speakers))
+
+        logger.info(
+            f"Iterative detection complete: {len(all_speakers)} total speakers found"
+        )
+        return all_speakers
+
+    def _detect_new_speakers(
+        self, text: str, existing_speakers: List[Dict[str, str]]
+    ) -> List[Dict[str, str]]:
+        """
+        Detect only NEW speakers in a text chunk, given existing speakers.
+
+        Args:
+            text: Text chunk to analyze
+            existing_speakers: List of already-detected speakers
+
+        Returns:
+            List of newly detected speaker dictionaries (may be empty)
+        """
+        if not text.strip():
+            return []
+
+        prompt = self._get_incremental_detection_prompt(existing_speakers)
+
+        try:
+            result = self.llm_client.process_text(
+                text=text,
+                batch_index=0,
+                custom_prompt=prompt,
+                temperature=0.1,
+                max_tokens=4000,
+            )
+
+            response_text = result.processed_text.strip()
+
+            # Remove markdown code blocks if present
+            if "```" in response_text:
+                lines = response_text.split("\n")
+                response_text = "\n".join(
+                    line for line in lines if not line.strip().startswith("```")
+                ).strip()
+
+            # Extract JSON
+            json_start = response_text.find("{")
+            if json_start > 0:
+                response_text = response_text[json_start:]
+
+            # Fix incomplete JSON
+            if not response_text.rstrip().endswith("}"):
+                last_complete = response_text.rfind("}]")
+                if last_complete > 0:
+                    response_text = response_text[: last_complete + 2] + "}"
+
+            speakers_data = json.loads(response_text)
+            new_speakers = speakers_data.get("speakers", [])
+
+            # Filter out any that match existing IDs (double-check)
+            existing_ids = {s["id"].lower() for s in existing_speakers}
+            existing_names = {s["name"].lower() for s in existing_speakers}
+
+            filtered = []
+            for s in new_speakers:
+                s_id = s.get("id", "").lower()
+                s_name = s.get("name", "").lower()
+                if s_id not in existing_ids and s_name not in existing_names:
+                    filtered.append(s)
+
+            return filtered
+
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Failed to detect new speakers in chunk: {e}")
+            return []
 
     def split_text_into_segments(
         self, text: str, detected_speakers: List[Dict[str, str]]

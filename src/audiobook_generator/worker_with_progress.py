@@ -349,10 +349,10 @@ class AudiobookWorkerWithProgress:
                 progress_message="Analyzing entire book for characters...",
             )
 
-            # Combine text from all chapters
-            combined_text = ""
+            # Collect text from all chapters for iterative analysis
+            chapter_texts = []
             for child in children:
-                combined_text += f"\n\n--- {child.title} ---\n\n{child.input_text}"
+                chapter_texts.append(f"--- {child.title} ---\n\n{child.input_text}")
 
             llm_client = LLMClient(
                 provider=self.llm_provider,
@@ -363,12 +363,25 @@ class AudiobookWorkerWithProgress:
 
             if parent_job.enable_speaker_detection:
                 speaker_detector = SpeakerDetector(llm_client)
-                detected_speakers = speaker_detector.detect_speakers(
-                    combined_text[:100000]
+
+                # Use iterative detection to analyze the ENTIRE book
+                def progress_callback(batch_num, total_batches, speakers_found):
+                    progress = 2 + int((batch_num / total_batches) * 45)  # 2-47%
+                    self.job_queue.update_job_status(
+                        parent_job_id,
+                        JobStatus.PROCESSING,
+                        progress=progress,
+                        progress_message=f"Analyzing book for characters... (batch {batch_num}/{total_batches}, {speakers_found} found)",
+                    )
+
+                detected_speakers = speaker_detector.detect_speakers_iterative(
+                    text_chunks=chapter_texts,
+                    batch_size_chars=50000,
+                    progress_callback=progress_callback,
                 )
                 speaker_names = [s["name"] for s in detected_speakers]
                 logger.info(
-                    f"Batch: detected {len(detected_speakers)} speakers: {speaker_names}"
+                    f"Batch: detected {len(detected_speakers)} speakers across entire book: {speaker_names}"
                 )
             else:
                 detected_speakers = [
