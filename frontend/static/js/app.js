@@ -4,6 +4,7 @@ const API_BASE = window.location.origin;
 // State
 let currentJobs = [];
 let autoRefreshInterval = null;
+let expandedJobIds = new Set(); // Track which jobs have expanded chapters
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -230,7 +231,10 @@ function renderJob(job) {
     if (job.status === 'completed') {
         if (isBatch) {
             actionsHTML = `
-                <button class="btn btn-success" onclick="downloadBook('${job.job_id}', '${escapeAttr(job.output_filename)}')">
+                <button class="btn btn-success" onclick="downloadFullAudiobook('${job.job_id}')">
+                    ⬇️ Full Audiobook
+                </button>
+                <button class="btn btn-secondary" onclick="downloadBook('${job.job_id}', '${escapeAttr(job.title || 'audiobook')}.zip')">
                     ⬇️ Download ZIP
                 </button>
             `;
@@ -335,12 +339,16 @@ function renderJob(job) {
             const chapterProgress = child.status === 'processing'
                 ? `<div class="chapter-progress-bar"><div class="progress-fill" style="width: ${child.progress}%"></div></div>`
                 : '';
+            const downloadBtn = child.status === 'completed'
+                ? `<button class="btn btn-sm btn-success chapter-download-btn" onclick="downloadChapter('${job.job_id}', ${child.chapter_index}, '${escapeAttr(child.output_filename || `chapter_${idx + 1}.mp3`)}')">⬇️</button>`
+                : '';
             return `
                 <div class="chapter-row">
                     <span class="chapter-index">${idx + 1}.</span>
                     <span class="chapter-name">${escapeHtml(child.title || child.input_filename || 'Chapter')}</span>
                     <span class="job-status ${childStatus}">${child.status}</span>
                     ${chapterProgress}
+                    ${downloadBtn}
                 </div>
             `;
         }).join('');
@@ -348,12 +356,13 @@ function renderJob(job) {
         const completedCount = job.child_jobs.filter(c => c.status === 'completed').length;
         const totalCount = job.child_jobs.length;
 
+        const isExpanded = expandedJobIds.has(job.job_id);
         childJobsHTML = `
             <div class="child-jobs-section">
-                <div class="child-jobs-header" onclick="toggleChildJobs(this)">
-                    Chapters (${completedCount}/${totalCount} done) ▾
+                <div class="child-jobs-header" onclick="toggleChildJobs(this, '${job.job_id}')">
+                    Chapters (${completedCount}/${totalCount} done) ${isExpanded ? '▴' : '▾'}
                 </div>
-                <div class="child-jobs-list" style="display: none;">
+                <div class="child-jobs-list" style="display: ${isExpanded ? 'block' : 'none'};">
                     ${chapterRows}
                 </div>
             </div>
@@ -398,14 +407,16 @@ function renderJob(job) {
     `;
 }
 
-function toggleChildJobs(header) {
+function toggleChildJobs(header, jobId) {
     const list = header.nextElementSibling;
     if (list.style.display === 'none') {
         list.style.display = 'block';
         header.textContent = header.textContent.replace('▾', '▴');
+        expandedJobIds.add(jobId);
     } else {
         list.style.display = 'none';
         header.textContent = header.textContent.replace('▴', '▾');
+        expandedJobIds.delete(jobId);
     }
 }
 
@@ -457,6 +468,63 @@ async function downloadBook(jobId, filename) {
         window.URL.revokeObjectURL(url);
 
         showToast('Book download started', 'success');
+    } catch (error) {
+        showToast(`Download failed: ${error.message}`, 'error');
+    }
+}
+
+async function downloadFullAudiobook(jobId) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/download-full`);
+
+        if (!response.ok) {
+            throw new Error('Failed to download full audiobook');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        
+        // Get filename from content-disposition header or use default
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = 'audiobook_complete.mp3';
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+            if (match) filename = match[1];
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        showToast('Full audiobook download started', 'success');
+    } catch (error) {
+        showToast(`Download failed: ${error.message}`, 'error');
+    }
+}
+
+async function downloadChapter(jobId, chapterIndex, filename) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/chapters/${chapterIndex}/download`);
+
+        if (!response.ok) {
+            throw new Error('Failed to download chapter');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        showToast(`Chapter ${chapterIndex + 1} download started`, 'success');
     } catch (error) {
         showToast(`Download failed: ${error.message}`, 'error');
     }

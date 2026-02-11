@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 import requests
 import threading
@@ -838,13 +839,69 @@ class AudiobookWorkerWithProgress:
 
             logger.info(f"Saved character manifest to {manifest_path}")
 
+            # Combine all chapter audio files into one full audiobook
             self.job_queue.update_job_status(
                 parent_job_id,
-                JobStatus.COMPLETED,
-                progress=100,
-                progress_message=f"All {total_chapters} chapters completed",
-                output_path=str(batch_output_dir),
+                JobStatus.PROCESSING,
+                progress=96,
+                progress_message="Combining all chapters into full audiobook...",
             )
+
+            from .audio_combiner import AudioCombiner
+
+            # Collect all chapter audio files in order
+            chapter_audio_files = []
+            for child in children:
+                child_result = self.job_queue.get_job(child.job_id)
+                if (
+                    child_result
+                    and child_result.output_path
+                    and Path(child_result.output_path).exists()
+                ):
+                    chapter_audio_files.append(child_result.output_path)
+
+            if chapter_audio_files:
+                audio_combiner = AudioCombiner(
+                    silence_between_segments=1500,  # 1.5 seconds between chapters
+                    normalize_audio=True,
+                    target_format="mp3",
+                    bitrate="192k",
+                )
+
+                # Generate combined audiobook filename
+                safe_title = re.sub(
+                    r'[<>:"/\\|?*]', "_", parent_job.title or "audiobook"
+                )
+                combined_output_filename = f"{safe_title}_complete.mp3"
+                combined_output_path = batch_output_dir / combined_output_filename
+
+                audio_combiner.combine_wav_files(
+                    input_files=chapter_audio_files,
+                    output_path=str(combined_output_path),
+                )
+
+                logger.info(
+                    f"Combined {len(chapter_audio_files)} chapters into {combined_output_path}"
+                )
+
+                # Update parent job output path to point to combined audiobook
+                self.job_queue.update_job_status(
+                    parent_job_id,
+                    JobStatus.COMPLETED,
+                    progress=100,
+                    progress_message=f"All {total_chapters} chapters completed + full audiobook generated",
+                    output_path=str(combined_output_path),
+                    output_filename=combined_output_filename,
+                )
+            else:
+                logger.warning("No chapter audio files found for combining")
+                self.job_queue.update_job_status(
+                    parent_job_id,
+                    JobStatus.COMPLETED,
+                    progress=100,
+                    progress_message=f"All {total_chapters} chapters completed",
+                    output_path=str(batch_output_dir),
+                )
 
             logger.info(f"Batch job completed: {parent_job_id}")
 

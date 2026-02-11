@@ -676,6 +676,11 @@ def download_batch_job(job_id: str):
             if child.output_path and Path(child.output_path).exists():
                 zf.write(child.output_path, f"audio/{child.output_filename}")
 
+        # Add combined full audiobook if it exists
+        if job.output_path and Path(job.output_path).exists():
+            combined_filename = Path(job.output_path).name
+            zf.write(job.output_path, f"audio/{combined_filename}")
+
         # Add characters.json manifest
         manifest_path = batch_output_dir / "characters.json"
         if manifest_path.exists():
@@ -690,7 +695,7 @@ def download_batch_job(job_id: str):
     zip_buffer.seek(0)
 
     # Write to temp file for FileResponse
-    zip_filename = job.output_filename or f"{job.title}.zip"
+    zip_filename = f"{job.title or 'audiobook'}.zip"
     batch_output_dir.mkdir(parents=True, exist_ok=True)
     zip_path = batch_output_dir / zip_filename
 
@@ -702,6 +707,153 @@ def download_batch_job(job_id: str):
         media_type="application/zip",
         filename=zip_filename,
     )
+
+
+@app.get("/jobs/{job_id}/download-full")
+def download_full_audiobook(job_id: str):
+    """
+    Download the combined full audiobook for a batch job.
+
+    Only available for batch jobs that have completed.
+    Returns the single MP3 file containing all chapters combined.
+    """
+    job = job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.is_batch:
+        raise HTTPException(
+            status_code=400,
+            detail="Not a batch job. Use /jobs/{job_id}/download for single audiobooks.",
+        )
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Batch job is not completed. Current status: {job.status}",
+        )
+
+    if not job.output_path or not Path(job.output_path).exists():
+        raise HTTPException(status_code=404, detail="Combined audiobook file not found")
+
+    return FileResponse(
+        path=job.output_path,
+        media_type="audio/mpeg",
+        filename=job.output_filename or "audiobook_complete.mp3",
+    )
+
+
+@app.get("/jobs/{job_id}/chapters/{chapter_index}/download")
+def download_chapter(job_id: str, chapter_index: int):
+    """
+    Download a specific chapter audio file from a batch job.
+
+    **Parameters:**
+    - `job_id`: UUID of the parent batch job
+    - `chapter_index`: Index of the chapter (0-based)
+
+    **Returns:** MP3 file download for the specific chapter
+    """
+    job = job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.is_batch:
+        raise HTTPException(
+            status_code=400,
+            detail="Not a batch job. Use /jobs/{job_id}/download for single audiobooks.",
+        )
+
+    children = job_queue.get_child_jobs(job_id)
+    if not children:
+        raise HTTPException(status_code=404, detail="No chapter jobs found")
+
+    # Find the chapter with matching index
+    chapter_job = None
+    for child in children:
+        if child.chapter_index == chapter_index:
+            chapter_job = child
+            break
+
+    if not chapter_job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chapter {chapter_index} not found. Available chapters: 0-{len(children) - 1}",
+        )
+
+    if chapter_job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Chapter {chapter_index} is not completed. Current status: {chapter_job.status}",
+        )
+
+    if not chapter_job.output_path or not Path(chapter_job.output_path).exists():
+        raise HTTPException(
+            status_code=404, detail=f"Audio file for chapter {chapter_index} not found"
+        )
+
+    return FileResponse(
+        path=chapter_job.output_path,
+        media_type="audio/mpeg",
+        filename=chapter_job.output_filename,
+    )
+
+
+@app.get("/jobs/{job_id}/chapters")
+def list_chapters(job_id: str):
+    """
+    List all chapters in a batch job with their download status.
+
+    **Parameters:**
+    - `job_id`: UUID of the parent batch job
+
+    **Returns:** List of chapters with their status and download availability
+    """
+    job = job_queue.get_job(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.is_batch:
+        raise HTTPException(status_code=400, detail="Not a batch job")
+
+    children = job_queue.get_child_jobs(job_id)
+
+    chapters = []
+    for child in children:
+        chapter_info = {
+            "job_id": child.job_id,
+            "chapter_index": child.chapter_index,
+            "title": child.title,
+            "status": child.status,
+            "progress": child.progress,
+            "output_filename": child.output_filename,
+            "downloadable": child.status == JobStatus.COMPLETED
+            and child.output_path
+            and Path(child.output_path).exists(),
+            "download_url": f"/jobs/{job_id}/chapters/{child.chapter_index}/download"
+            if child.status == JobStatus.COMPLETED
+            else None,
+        }
+        chapters.append(chapter_info)
+
+    return {
+        "job_id": job_id,
+        "book_title": job.title,
+        "total_chapters": len(chapters),
+        "completed_chapters": sum(
+            1 for c in chapters if c["status"] == JobStatus.COMPLETED
+        ),
+        "full_audiobook_available": job.status == JobStatus.COMPLETED
+        and job.output_path
+        and Path(job.output_path).exists(),
+        "full_audiobook_download_url": f"/jobs/{job_id}/download-full"
+        if job.status == JobStatus.COMPLETED
+        else None,
+        "chapters": chapters,
+    }
 
 
 @app.get("/stats")
