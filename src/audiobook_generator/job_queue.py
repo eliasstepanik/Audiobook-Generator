@@ -200,6 +200,32 @@ class JobQueue:
 
             logger.info(f"Updated job {job_id}: {status} ({progress}%)")
 
+    def update_detected_characters(self, job_id: str, characters: list) -> None:
+        """
+        Update detected characters for a job.
+
+        Args:
+            job_id: Job ID
+            characters: List of character dictionaries
+        """
+        with self.database.get_session() as session:
+            job = (
+                session.query(AudiobookJob)
+                .filter(AudiobookJob.job_id == job_id)
+                .first()
+            )
+
+            if not job:
+                logger.warning(f"Job not found: {job_id}")
+                return
+
+            job.detected_characters = json.dumps(characters)
+            session.commit()
+
+            logger.info(
+                f"Updated characters for job {job_id}: {len(characters)} characters"
+            )
+
     def get_next_confirmed_job(self) -> Optional[AudiobookJob]:
         """
         Get next job that was AWAITING_REVIEW and has been confirmed (status set to PROCESSING).

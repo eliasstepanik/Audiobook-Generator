@@ -1037,6 +1037,9 @@ function showCharacterModal(jobId, characters, voicePresets = []) {
                 <span class="voice-badge ${voiceSource}">
                     ${badgeText}
                 </span>
+                <button class="btn btn-sm btn-danger char-delete-btn" onclick="deleteCharacter('${jobId}', '${char.id}', this)" title="Remove this character">
+                    &times;
+                </button>
             </div>
             <div class="character-fields">
                 <div class="field-group">
@@ -1066,9 +1069,9 @@ function showCharacterModal(jobId, characters, voicePresets = []) {
                 </div>
                 ` : ''}
                 <div class="field-group voice-upload-group">
-                    <label>Or Upload Voice File (WAV or PT)</label>
+                    <label>Or Upload Voice File (WAV, MP3, or PT)</label>
                     <div class="voice-upload-row">
-                        <input type="file" class="char-voice-file" accept=".wav,.pt" data-char-id="${char.id}">
+                        <input type="file" class="char-voice-file" accept=".wav,.mp3,.pt" data-char-id="${char.id}">
                         <button class="btn btn-sm btn-secondary" onclick="uploadVoiceClone('${jobId}', '${char.id}', this)">
                             Upload
                         </button>
@@ -1093,7 +1096,7 @@ function showCharacterModal(jobId, characters, voicePresets = []) {
                 <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-subtitle">Edit character details or upload voice files (.wav or .pt). Click Confirm to continue processing.</p>
+                <p class="modal-subtitle">Edit character details or upload voice files (.wav, .mp3, or .pt). Click Confirm to continue processing.</p>
                 <div class="characters-list">
                     ${characterRows}
                 </div>
@@ -1180,6 +1183,35 @@ async function removeVoiceClone(jobId, characterId, btn) {
         badge.className = 'voice-badge generated';
         badge.textContent = 'GENERATED';
         btn.remove();
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+}
+
+async function deleteCharacter(jobId, characterId, btn) {
+    if (!confirm('Are you sure you want to remove this character?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters/${characterId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) throw new Error('Failed to delete character');
+
+        showToast('Character removed', 'success');
+
+        // Remove the card from UI
+        const card = btn.closest('.character-card');
+        card.remove();
+        
+        // Renumber remaining characters
+        const cards = document.querySelectorAll('.character-card');
+        cards.forEach((card, idx) => {
+            const numberSpan = card.querySelector('.character-number');
+            if (numberSpan) numberSpan.textContent = idx + 1;
+        });
     } catch (error) {
         showToast(`Error: ${error.message}`, 'error');
     }

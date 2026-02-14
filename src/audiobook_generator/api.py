@@ -536,6 +536,60 @@ def delete_voice_clone(job_id: str, character_id: str):
     )
 
 
+@app.delete("/jobs/{job_id}/characters/{character_id}")
+def delete_character(job_id: str, character_id: str):
+    """
+    Delete a character/speaker from the detected characters list.
+    Only allowed when job is in AWAITING_REVIEW status.
+    """
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.AWAITING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only delete characters when status is awaiting_review",
+        )
+
+    if not job.detected_characters:
+        raise HTTPException(status_code=400, detail="No characters detected")
+
+    characters = json.loads(job.detected_characters)
+    original_count = len(characters)
+
+    # Filter out the character to delete
+    characters = [c for c in characters if c["id"] != character_id]
+
+    if len(characters) == original_count:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character '{character_id}' not found",
+        )
+
+    # Update the job with the new character list
+    job_queue.update_detected_characters(job_id, characters)
+
+    # Also delete any voice clone files for this character
+    clone_dir = Path("./data/output") / job_id / "voice_clones"
+    for ext in [".wav", ".mp3", ".pt"]:
+        clone_path = clone_dir / f"{character_id}{ext}"
+        if clone_path.exists():
+            clone_path.unlink()
+    ref_text_path = clone_dir / f"{character_id}_ref_text.txt"
+    if ref_text_path.exists():
+        ref_text_path.unlink()
+
+    logger.info(f"Deleted character {character_id} from job {job_id}")
+
+    return {
+        "job_id": job_id,
+        "character_id": character_id,
+        "deleted": True,
+        "remaining_characters": len(characters),
+    }
+
+
 @app.post("/jobs/{job_id}/confirm")
 def confirm_characters(job_id: str):
     """
