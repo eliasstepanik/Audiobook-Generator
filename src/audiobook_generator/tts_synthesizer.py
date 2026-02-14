@@ -248,6 +248,67 @@ class TTSSynthesizer:
 
         logger.info("Voice clone prompt ready")
 
+    def load_voice_prompt(self, pt_file_path: str):
+        """
+        Load a pre-saved voice clone prompt from a .pt file.
+
+        Args:
+            pt_file_path: Path to the .pt file containing voice clone prompt
+        """
+        from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
+
+        self._load_clone_model()
+
+        logger.info(f"Loading voice prompt from: {pt_file_path}")
+
+        payload = torch.load(pt_file_path, map_location="cpu", weights_only=True)
+
+        if not isinstance(payload, dict) or "items" not in payload:
+            raise ValueError(f"Invalid .pt voice file format: {pt_file_path}")
+
+        items = []
+        for d in payload["items"]:
+            ref_code = d.get("ref_code")
+            if ref_code is not None and not torch.is_tensor(ref_code):
+                ref_code = torch.tensor(ref_code)
+
+            ref_spk = d.get("ref_spk_embedding")
+            if ref_spk is None:
+                raise ValueError("Missing ref_spk_embedding in voice file")
+            if not torch.is_tensor(ref_spk):
+                ref_spk = torch.tensor(ref_spk)
+
+            items.append(
+                VoiceClonePromptItem(
+                    ref_code=ref_code,
+                    ref_spk_embedding=ref_spk,
+                    x_vector_only_mode=bool(d.get("x_vector_only_mode", False)),
+                    icl_mode=bool(d.get("icl_mode", True)),
+                    ref_text=d.get("ref_text"),
+                )
+            )
+
+        self.voice_clone_prompt = items
+        logger.info(f"Voice clone prompt loaded successfully ({len(items)} item(s))")
+
+    def save_voice_prompt(self, output_path: str):
+        """
+        Save the current voice clone prompt to a .pt file for later reuse.
+
+        Args:
+            output_path: Path to save the .pt file
+        """
+        if self.voice_clone_prompt is None:
+            raise ValueError(
+                "No voice clone prompt to save. Call prepare_voice_clone first."
+            )
+
+        from dataclasses import asdict
+
+        payload = {"items": [asdict(it) for it in self.voice_clone_prompt]}
+        torch.save(payload, output_path)
+        logger.info(f"Voice clone prompt saved to: {output_path}")
+
     def synthesize(
         self,
         text: Union[str, List[str]],

@@ -21,6 +21,51 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class VoicePreset(Base):
+    """Database model for reusable voice presets."""
+
+    __tablename__ = "voice_presets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    voice_id = Column(String(36), unique=True, index=True, nullable=False)
+
+    # Voice info
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+
+    # Voice characteristics
+    gender = Column(String(20), nullable=True)  # male, female, neutral
+    age = Column(String(50), nullable=True)  # e.g., "25 years old", "elderly"
+    voice_characteristics = Column(Text, nullable=True)  # Full characteristics string
+
+    # Reference audio
+    reference_audio_path = Column(String(512), nullable=True)
+    reference_text = Column(Text, nullable=True)
+
+    # Voice prompt file (.pt) - pre-extracted voice embeddings
+    voice_prompt_path = Column(String(512), nullable=True)
+
+    # Metadata
+    is_system = Column(Boolean, default=False)  # Built-in vs user-created
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            "voice_id": self.voice_id,
+            "name": self.name,
+            "description": self.description,
+            "gender": self.gender,
+            "age": self.age,
+            "voice_characteristics": self.voice_characteristics,
+            "reference_audio_path": self.reference_audio_path,
+            "reference_text": self.reference_text,
+            "voice_prompt_path": self.voice_prompt_path,
+            "is_system": self.is_system,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class AudiobookJob(Base):
     """Database model for audiobook generation jobs."""
 

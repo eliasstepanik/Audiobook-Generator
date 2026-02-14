@@ -14,8 +14,10 @@ import re
 
 from .database import get_database
 from .job_queue import JobQueue
-from .models import JobStatus
+from .models import JobStatus, VoicePreset
 from .config import load_config
+import uuid
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -878,6 +880,370 @@ def get_stats():
 
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================================================================
+# Voice Preset endpoints (pre-created voices)
+# =========================================================================
+
+VOICE_PRESETS_DIR = Path("./data/voice_presets")
+
+
+@app.get("/voices")
+def list_voice_presets():
+    """
+    List all available voice presets.
+
+    Returns both system presets and user-created voice presets.
+    """
+    try:
+        with database.get_session() as session:
+            presets = session.query(VoicePreset).all()
+            return {
+                "voice_presets": [p.to_dict() for p in presets],
+                "total": len(presets),
+            }
+    except Exception as e:
+        logger.error(f"Failed to list voice presets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/voices", status_code=201)
+async def create_voice_preset(
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    gender: Optional[str] = Form(None),
+    age: Optional[str] = Form(None),
+    voice_characteristics: Optional[str] = Form(None),
+    reference_text: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    voice_prompt_file: Optional[UploadFile] = File(None),
+):
+    """
+    Create a new voice preset.
+
+    Can be created with:
+    - Just voice characteristics (for generation)
+    - A reference audio file (.wav) (for voice cloning)
+    - A voice prompt file (.pt) (pre-extracted voice embeddings)
+    """
+    try:
+        voice_id = str(uuid.uuid4())
+        reference_audio_path = None
+        voice_prompt_path = None
+
+        voice_dir = VOICE_PRESETS_DIR / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save reference audio if provided
+        if file and file.filename:
+            if not file.filename.lower().endswith(".wav"):
+                raise HTTPException(
+                    status_code=400, detail="Reference audio must be a .wav file"
+                )
+
+            reference_audio_path = str(voice_dir / "reference.wav")
+
+            content = await file.read()
+            with open(reference_audio_path, "wb") as f:
+                f.write(content)
+
+        # Save voice prompt file if provided
+        if voice_prompt_file and voice_prompt_file.filename:
+            if not voice_prompt_file.filename.lower().endswith(".pt"):
+                raise HTTPException(
+                    status_code=400, detail="Voice prompt must be a .pt file"
+                )
+
+            voice_prompt_path = str(voice_dir / "voice_prompt.pt")
+
+            content = await voice_prompt_file.read()
+            with open(voice_prompt_path, "wb") as f:
+                f.write(content)
+
+        with database.get_session() as session:
+            preset = VoicePreset(
+                voice_id=voice_id,
+                name=name,
+                description=description,
+                gender=gender,
+                age=age,
+                voice_characteristics=voice_characteristics,
+                reference_audio_path=reference_audio_path,
+                reference_text=reference_text,
+                voice_prompt_path=voice_prompt_path,
+                is_system=False,
+            )
+            session.add(preset)
+            session.commit()
+            session.refresh(preset)
+
+            return preset.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create voice preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/voices/{voice_id}")
+def get_voice_preset(voice_id: str):
+    """Get details of a specific voice preset."""
+    try:
+        with database.get_session() as session:
+            preset = (
+                session.query(VoicePreset)
+                .filter(VoicePreset.voice_id == voice_id)
+                .first()
+            )
+            if not preset:
+                raise HTTPException(status_code=404, detail="Voice preset not found")
+            return preset.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get voice preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/voices/{voice_id}/preview")
+def preview_voice_preset(voice_id: str):
+    """Download the reference audio file for a voice preset."""
+    try:
+        with database.get_session() as session:
+            preset = (
+                session.query(VoicePreset)
+                .filter(VoicePreset.voice_id == voice_id)
+                .first()
+            )
+            if not preset:
+                raise HTTPException(status_code=404, detail="Voice preset not found")
+
+            if (
+                not preset.reference_audio_path
+                or not Path(preset.reference_audio_path).exists()
+            ):
+                raise HTTPException(
+                    status_code=404,
+                    detail="No reference audio available for this preset",
+                )
+
+            return FileResponse(
+                path=preset.reference_audio_path,
+                media_type="audio/wav",
+                filename=f"{preset.name}.wav",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to preview voice preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/voices/{voice_id}")
+def delete_voice_preset(voice_id: str):
+    """Delete a user-created voice preset. System presets cannot be deleted."""
+    try:
+        with database.get_session() as session:
+            preset = (
+                session.query(VoicePreset)
+                .filter(VoicePreset.voice_id == voice_id)
+                .first()
+            )
+            if not preset:
+                raise HTTPException(status_code=404, detail="Voice preset not found")
+
+            if preset.is_system:
+                raise HTTPException(
+                    status_code=403, detail="Cannot delete system voice presets"
+                )
+
+            # Delete audio files
+            voice_dir = VOICE_PRESETS_DIR / voice_id
+            if voice_dir.exists():
+                shutil.rmtree(voice_dir)
+
+            session.delete(preset)
+            session.commit()
+
+            return {"voice_id": voice_id, "deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete voice preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/voices/generate")
+async def generate_voice_preset(
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    gender: str = Form("male"),
+    age: str = Form("30"),
+    voice_characteristics: str = Form(...),
+    sample_text: Optional[str] = Form(None),
+):
+    """
+    Generate a new voice using Qwen VoiceDesign model.
+
+    Uses the voice_characteristics to generate a reference audio file
+    that can be used for voice cloning in future audiobook jobs.
+    """
+    from .tts_synthesizer import TTSSynthesizer
+    from .voice_control import VoiceConfig, DetailedVoiceProfile
+    import soundfile as sf
+
+    try:
+        voice_id = str(uuid.uuid4())
+        voice_dir = VOICE_PRESETS_DIR / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        reference_audio_path = str(voice_dir / "reference.wav")
+
+        # Default sample text if not provided
+        if not sample_text:
+            sample_text = "Hello, welcome to this audiobook. I hope you enjoy listening to this story as much as I enjoyed narrating it for you."
+
+        # Create voice config with the characteristics
+        voice_config = VoiceConfig(
+            profile=DetailedVoiceProfile.from_natural_language(voice_characteristics)
+        )
+
+        # Create synthesizer and generate voice
+        logger.info(f"Generating voice with characteristics: {voice_characteristics}")
+        synthesizer = TTSSynthesizer(voice_config)
+
+        # Generate the voice using VoiceDesign model
+        audio_data, sample_rate = synthesizer.create_voice(
+            output_path=reference_audio_path,
+            design_text=sample_text,
+            design_instruct=voice_characteristics,
+        )
+
+        logger.info(f"Voice generated and saved to: {reference_audio_path}")
+
+        # Save to database
+        with database.get_session() as session:
+            preset = VoicePreset(
+                voice_id=voice_id,
+                name=name,
+                description=description or f"Generated voice: {voice_characteristics}",
+                gender=gender,
+                age=age,
+                voice_characteristics=voice_characteristics,
+                reference_audio_path=reference_audio_path,
+                reference_text=sample_text,
+                is_system=False,
+            )
+            session.add(preset)
+            session.commit()
+            session.refresh(preset)
+
+            return {
+                **preset.to_dict(),
+                "generated": True,
+                "message": "Voice generated successfully using Qwen VoiceDesign",
+            }
+
+    except Exception as e:
+        # Clean up on error
+        if voice_dir.exists():
+            shutil.rmtree(voice_dir)
+        logger.error(f"Failed to generate voice preset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/jobs/{job_id}/characters/{character_id}/assign-voice")
+def assign_voice_preset_to_character(
+    job_id: str, character_id: str, voice_preset_id: str = Form(...)
+):
+    """
+    Assign a pre-created voice preset to a character.
+
+    This copies the voice preset's reference audio to the character's voice clone directory,
+    making it behave like an uploaded voice clone.
+    """
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.AWAITING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only assign voices when status is awaiting_review, current: {job.status}",
+        )
+
+    # Verify character exists
+    if not job.detected_characters:
+        raise HTTPException(status_code=400, detail="No characters detected")
+
+    characters = json.loads(job.detected_characters)
+    char_idx = None
+    for i, c in enumerate(characters):
+        if c["id"] == character_id:
+            char_idx = i
+            break
+
+    if char_idx is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character '{character_id}' not found",
+        )
+
+    # Get voice preset
+    try:
+        with database.get_session() as session:
+            preset = (
+                session.query(VoicePreset)
+                .filter(VoicePreset.voice_id == voice_preset_id)
+                .first()
+            )
+            if not preset:
+                raise HTTPException(status_code=404, detail="Voice preset not found")
+
+            # Copy reference audio to voice clone directory
+            clone_dir = Path("./data/output") / job_id / "voice_clones"
+            clone_dir.mkdir(parents=True, exist_ok=True)
+            clone_path = clone_dir / f"{character_id}.wav"
+
+            if (
+                preset.reference_audio_path
+                and Path(preset.reference_audio_path).exists()
+            ):
+                shutil.copy2(preset.reference_audio_path, clone_path)
+
+            # Save reference text if available
+            if preset.reference_text:
+                ref_text_path = clone_dir / f"{character_id}_ref_text.txt"
+                with open(ref_text_path, "w", encoding="utf-8") as f:
+                    f.write(preset.reference_text)
+
+            # Update character with voice preset info
+            characters[char_idx]["voice_preset_id"] = voice_preset_id
+            characters[char_idx]["voice_preset_name"] = preset.name
+            if preset.voice_characteristics:
+                characters[char_idx]["voice_characteristics"] = (
+                    preset.voice_characteristics
+                )
+
+            job_queue.update_job_status(
+                job_id,
+                JobStatus.AWAITING_REVIEW,
+                detected_characters=json.dumps(characters),
+            )
+
+            return {
+                "job_id": job_id,
+                "character_id": character_id,
+                "voice_preset_id": voice_preset_id,
+                "voice_preset_name": preset.name,
+                "assigned": True,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to assign voice preset: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

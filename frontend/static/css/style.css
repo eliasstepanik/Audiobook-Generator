@@ -777,3 +777,201 @@ header h1 {
     border-radius: 2px;
     transition: width 0.3s;
 }
+
+/* Voice Preset Selection */
+.voice-preset-section {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.voice-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.voice-preset-row select {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: white;
+}
+
+.voice-preset-row button {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.voice-badge.preset {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.voice-preset-info {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #eff6ff;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.voice-preset-info strong {
+    color: #1e40af;
+}
+
+.voice-preset-info p {
+    margin: 4px 0 0 0;
+    color: #64748b;
+}
+
+/* Voice Library */
+.voice-library {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.voice-presets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.voice-preset-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.voice-preset-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.voice-info h4 {
+    margin: 0 0 4px 0;
+    font-size: 1rem;
+    color: #1e293b;
+}
+
+.voice-description {
+    margin: 0 0 8px 0;
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.voice-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.voice-tags .tag {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    border-radius: 12px;
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.voice-tags .tag.system {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.voice-tags .tag.user {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.voice-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.voice-actions .btn-sm {
+    white-space: nowrap;
+}
+
+.btn-danger {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.btn-danger:hover {
+    background: #fecaca;
+}
+
+.no-voices {
+    text-align: center;
+    color: #64748b;
+    padding: 24px;
+    background: #f8fafc;
+    border-radius: 8px;
+}
+
+/* Voice Generator */
+.voice-generator,
+.voice-uploader {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.voice-generator h3,
+.voice-uploader h3 {
+    margin: 0 0 16px 0;
+    font-size: 1.1rem;
+    color: #1e293b;
+}
+
+.voice-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.voice-form-grid .form-group {
+    margin-bottom: 0;
+}
+
+.voice-form-grid label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+.voice-form-grid input,
+.voice-form-grid select,
+.voice-form-grid textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.voice-form-grid textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.voice-form-full {
+    grid-column: 1 / -1;
+}

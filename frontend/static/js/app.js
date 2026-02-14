@@ -13,8 +13,407 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeFilters();
     loadStats();
     loadJobs();
+    loadVoiceLibrary();
     startAutoRefresh();
 });
+
+// Voice Library Management
+async function loadVoiceLibrary() {
+    try {
+        const response = await fetch(`${API_BASE}/voices`);
+        const voices = await response.json();
+        
+        const container = document.getElementById('voice-presets-list');
+        if (!container) return;
+        
+        if (voices.length === 0) {
+            container.innerHTML = '<p class="no-voices">No voice presets created yet. Generate one below!</p>';
+            return;
+        }
+        
+        container.innerHTML = voices.map(voice => `
+            <div class="voice-preset-card" data-voice-id="${escapeAttr(voice.voice_id)}">
+                <div class="voice-info">
+                    <h4>${escapeHtml(voice.name)}</h4>
+                    <p class="voice-description">${escapeHtml(voice.description || '')}</p>
+                    <div class="voice-tags">
+                        ${voice.gender ? `<span class="tag">${escapeHtml(voice.gender)}</span>` : ''}
+                        ${voice.age ? `<span class="tag">${voice.age} years</span>` : ''}
+                        ${voice.is_system ? '<span class="tag system">System</span>' : '<span class="tag user">Custom</span>'}
+                    </div>
+                </div>
+                <div class="voice-actions">
+                    <button class="btn btn-sm" onclick="playVoicePreview('${escapeAttr(voice.voice_id)}')">
+                        Preview
+                    </button>
+                    ${!voice.is_system ? `
+                        <button class="btn btn-sm btn-danger" onclick="deleteVoicePreset('${escapeAttr(voice.voice_id)}')">
+                            Delete
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load voice library:', error);
+    }
+}
+
+async function generateVoicePreset() {
+    const name = document.getElementById('voice-name').value.trim();
+    const description = document.getElementById('voice-description').value.trim();
+    const gender = document.getElementById('voice-gender').value;
+    const age = document.getElementById('voice-age').value;
+    const pitch = document.getElementById('voice-pitch').value;
+    const pace = document.getElementById('voice-pace').value;
+    const sampleText = document.getElementById('voice-sample-text').value.trim();
+    
+    if (!name) {
+        alert('Please enter a name for the voice preset');
+        return;
+    }
+    
+    // Build voice characteristics string
+    const characteristics = [];
+    if (gender) characteristics.push(gender.charAt(0).toUpperCase() + gender.slice(1));
+    if (age) characteristics.push(`${age} years old`);
+    if (pitch) characteristics.push(`${pitch} pitch`);
+    if (pace) characteristics.push(`${pace} pace`);
+    characteristics.push('clear articulation');
+    
+    const voiceCharacteristics = characteristics.join(', ');
+    
+    // Show loading state
+    const btn = document.querySelector('#voice-generator button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    
+    try {
+        const formData = new URLSearchParams();
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('gender', gender);
+        formData.append('age', age);
+        formData.append('voice_characteristics', voiceCharacteristics);
+        formData.append('sample_text', sampleText || 'Hello, welcome to this audiobook. I hope you enjoy listening.');
+        
+        const response = await fetch(`${API_BASE}/voices/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to generate voice');
+        }
+        
+        const result = await response.json();
+        alert(`Voice "${name}" generated successfully!`);
+        
+        // Clear form
+        document.getElementById('voice-name').value = '';
+        document.getElementById('voice-description').value = '';
+        document.getElementById('voice-sample-text').value = '';
+        
+        // Reload voice library
+        loadVoiceLibrary();
+        
+    } catch (error) {
+        console.error('Failed to generate voice:', error);
+        alert('Failed to generate voice: ' + error.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function playVoicePreview(voiceId) {
+    try {
+        const audio = new Audio(`${API_BASE}/voices/${voiceId}/preview`);
+        audio.play();
+    } catch (error) {
+        console.error('Failed to play voice preview:', error);
+        alert('Failed to play voice preview');
+    }
+}
+
+async function deleteVoicePreset(voiceId) {
+    if (!confirm('Are you sure you want to delete this voice preset?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/voices/${voiceId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete voice');
+        }
+        
+        loadVoiceLibrary();
+    } catch (error) {
+        console.error('Failed to delete voice:', error);
+        alert('Failed to delete voice: ' + error.message);
+    }
+}
+
+async function uploadVoiceFile() {
+    const name = document.getElementById('upload-voice-name').value.trim();
+    const description = document.getElementById('upload-voice-description').value.trim();
+    const fileInput = document.getElementById('upload-voice-file');
+    const refText = document.getElementById('upload-voice-ref-text').value.trim();
+    
+    if (!name) {
+        alert('Please enter a name for the voice preset');
+        return;
+    }
+    
+    if (!fileInput.files || !fileInput.files[0]) {
+        alert('Please select a voice file to upload');
+        return;
+    }
+    
+    const btn = document.querySelector('#voice-uploader button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.textContent = 'Uploading...';
+    btn.disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('reference_text', refText);
+        formData.append('file', fileInput.files[0]);
+        
+        const response = await fetch(`${API_BASE}/voices`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to upload voice');
+        }
+        
+        alert(`Voice "${name}" uploaded successfully!`);
+        
+        // Clear form
+        document.getElementById('upload-voice-name').value = '';
+        document.getElementById('upload-voice-description').value = '';
+        document.getElementById('upload-voice-file').value = '';
+        document.getElementById('upload-voice-ref-text').value = '';
+        
+        // Reload voice library
+        loadVoiceLibrary();
+        
+    } catch (error) {
+        console.error('Failed to upload voice:', error);
+        alert('Failed to upload voice: ' + error.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+// Show Create Voice Modal
+function showCreateVoiceModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'create-voice-modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Create New Voice</h2>
+                <button class="close-modal" onclick="closeCreateVoiceModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="create-voice-tabs">
+                    <button class="create-voice-tab active" onclick="switchCreateVoiceTab('generate')">Generate Voice</button>
+                    <button class="create-voice-tab" onclick="switchCreateVoiceTab('upload')">Upload Voice File</button>
+                </div>
+                
+                <!-- Generate Voice Tab -->
+                <div id="generate-voice-tab" class="create-voice-panel active">
+                    <p>Use AI to generate a new voice based on characteristics:</p>
+                    <div class="form-group">
+                        <label>Voice Name *</label>
+                        <input type="text" id="gen-voice-name" placeholder="e.g., Professional Narrator">
+                    </div>
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <select id="gen-voice-gender">
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="neutral">Neutral</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Age</label>
+                        <input type="number" id="gen-voice-age" value="30" min="5" max="90">
+                    </div>
+                    <div class="form-group">
+                        <label>Voice Characteristics *</label>
+                        <input type="text" id="gen-voice-characteristics" placeholder="e.g., warm, clear, professional narrator voice">
+                    </div>
+                    <div class="form-group">
+                        <label>Sample Text (what the voice will say)</label>
+                        <textarea id="gen-voice-sample" rows="2" placeholder="Hello, welcome to this audiobook.">Hello, welcome to this audiobook.</textarea>
+                    </div>
+                    <button class="btn-primary" onclick="generateVoiceFromModal()">Generate Voice</button>
+                </div>
+                
+                <!-- Upload Voice Tab -->
+                <div id="upload-voice-tab" class="create-voice-panel" style="display: none;">
+                    <p>Upload a voice file (.wav for audio reference, .pt for pre-trained voice model):</p>
+                    <div class="form-group">
+                        <label>Voice Name *</label>
+                        <input type="text" id="upl-voice-name" placeholder="e.g., My Custom Voice">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="upl-voice-description" placeholder="Brief description of this voice">
+                    </div>
+                    <div class="form-group">
+                        <label>Voice File * (.wav or .pt)</label>
+                        <input type="file" id="upl-voice-file" accept=".wav,.pt">
+                    </div>
+                    <div class="form-group" id="upl-ref-text-group">
+                        <label>Reference Text (for .wav files - what is spoken in the audio)</label>
+                        <textarea id="upl-voice-ref-text" rows="2" placeholder="The exact words spoken in the uploaded audio..."></textarea>
+                    </div>
+                    <button class="btn-primary" onclick="uploadVoiceFromModal()">Upload Voice</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function closeCreateVoiceModal() {
+    const modal = document.getElementById('create-voice-modal');
+    if (modal) modal.remove();
+}
+
+function switchCreateVoiceTab(tab) {
+    document.querySelectorAll('.create-voice-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.create-voice-panel').forEach(p => {
+        p.classList.remove('active');
+        p.style.display = 'none';
+    });
+    
+    if (tab === 'generate') {
+        document.querySelector('.create-voice-tab:first-child').classList.add('active');
+        document.getElementById('generate-voice-tab').style.display = 'block';
+        document.getElementById('generate-voice-tab').classList.add('active');
+    } else {
+        document.querySelector('.create-voice-tab:last-child').classList.add('active');
+        document.getElementById('upload-voice-tab').style.display = 'block';
+        document.getElementById('upload-voice-tab').classList.add('active');
+    }
+}
+
+async function generateVoiceFromModal() {
+    const name = document.getElementById('gen-voice-name').value.trim();
+    const gender = document.getElementById('gen-voice-gender').value;
+    const age = document.getElementById('gen-voice-age').value;
+    const characteristics = document.getElementById('gen-voice-characteristics').value.trim();
+    const sampleText = document.getElementById('gen-voice-sample').value.trim();
+    
+    if (!name || !characteristics) {
+        alert('Please fill in name and voice characteristics');
+        return;
+    }
+    
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('gender', gender);
+        formData.append('age', age);
+        formData.append('voice_characteristics', characteristics);
+        formData.append('sample_text', sampleText || 'Hello, welcome to this audiobook.');
+        
+        const response = await fetch(`${API_BASE}/voices/generate`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to generate voice');
+        }
+        
+        alert(`Voice "${name}" generated successfully!`);
+        closeCreateVoiceModal();
+        loadVoiceLibrary();
+        
+    } catch (error) {
+        console.error('Failed to generate voice:', error);
+        alert('Failed to generate voice: ' + error.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function uploadVoiceFromModal() {
+    const name = document.getElementById('upl-voice-name').value.trim();
+    const description = document.getElementById('upl-voice-description').value.trim();
+    const fileInput = document.getElementById('upl-voice-file');
+    const refText = document.getElementById('upl-voice-ref-text').value.trim();
+    
+    if (!name || !fileInput.files.length) {
+        alert('Please provide a name and select a file');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    const isPt = file.name.toLowerCase().endsWith('.pt');
+    
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = 'Uploading...';
+    btn.disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('description', description);
+        formData.append('file', file);
+        if (!isPt && refText) {
+            formData.append('reference_text', refText);
+        }
+        
+        const response = await fetch(`${API_BASE}/voices`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to upload voice');
+        }
+        
+        alert(`Voice "${name}" uploaded successfully!`);
+        closeCreateVoiceModal();
+        loadVoiceLibrary();
+        
+    } catch (error) {
+        console.error('Failed to upload voice:', error);
+        alert('Failed to upload voice: ' + error.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
 
 // Tab Management
 function initializeTabs() {
@@ -593,28 +992,50 @@ function escapeAttr(text) {
 
 async function openCharacterReview(jobId) {
     try {
-        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters`);
-        if (!response.ok) throw new Error('Failed to load characters');
-        const data = await response.json();
+        // Load characters and voice presets in parallel
+        const [charactersResponse, presetsResponse] = await Promise.all([
+            fetch(`${API_BASE}/jobs/${jobId}/characters`),
+            fetch(`${API_BASE}/voices`)
+        ]);
+        
+        if (!charactersResponse.ok) throw new Error('Failed to load characters');
+        const charactersData = await charactersResponse.json();
+        
+        // Voice presets are optional - don't fail if not available
+        let voicePresets = [];
+        if (presetsResponse.ok) {
+            const presetsData = await presetsResponse.json();
+            voicePresets = presetsData.voice_presets || [];
+        }
 
-        showCharacterModal(jobId, data.characters);
+        showCharacterModal(jobId, charactersData.characters, voicePresets);
     } catch (error) {
         showToast(`Error: ${error.message}`, 'error');
     }
 }
 
-function showCharacterModal(jobId, characters) {
+function showCharacterModal(jobId, characters, voicePresets = []) {
     // Remove existing modal
     const existing = document.getElementById('character-modal');
     if (existing) existing.remove();
 
-    const characterRows = characters.map((char, idx) => `
+    // Build voice preset options
+    const presetOptions = voicePresets.length > 0
+        ? voicePresets.map(p => `<option value="${p.voice_id}">${escapeHtml(p.name)}${p.gender ? ` (${p.gender})` : ''}</option>`).join('')
+        : '';
+
+    const characterRows = characters.map((char, idx) => {
+        const currentPresetId = char.voice_preset_id || '';
+        const voiceSource = char.has_voice_clone ? 'clone' : (char.voice_preset_id ? 'preset' : 'generated');
+        const badgeText = char.has_voice_clone ? 'CLONE' : (char.voice_preset_id ? 'PRESET' : 'GENERATED');
+        
+        return `
         <div class="character-card" data-character-id="${char.id}">
             <div class="character-header">
                 <span class="character-number">${idx + 1}</span>
                 <input type="text" class="char-name" value="${escapeAttr(char.name)}" placeholder="Name">
-                <span class="voice-badge ${char.has_voice_clone ? 'clone' : 'generated'}">
-                    ${char.has_voice_clone ? 'CLONE' : 'GENERATED'}
+                <span class="voice-badge ${voiceSource}">
+                    ${badgeText}
                 </span>
             </div>
             <div class="character-fields">
@@ -626,10 +1047,28 @@ function showCharacterModal(jobId, characters) {
                     <label>Voice Characteristics</label>
                     <input type="text" class="char-voice" value="${escapeAttr(char.voice_characteristics || '')}" placeholder="e.g. Female, 25, high-pitched, fast pace">
                 </div>
+                ${voicePresets.length > 0 ? `
+                <div class="field-group">
+                    <label>Use Pre-Created Voice</label>
+                    <div class="voice-preset-row">
+                        <select class="char-voice-preset" data-char-id="${char.id}">
+                            <option value="">-- Generate new voice --</option>
+                            ${presetOptions}
+                        </select>
+                        <button class="btn btn-sm btn-primary" onclick="assignVoicePreset('${jobId}', '${char.id}', this)">
+                            Apply
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="previewVoicePreset(this)">
+                            ▶ Preview
+                        </button>
+                    </div>
+                    ${char.voice_preset_name ? `<div class="voice-preset-assigned">Currently assigned: <strong>${escapeHtml(char.voice_preset_name)}</strong></div>` : ''}
+                </div>
+                ` : ''}
                 <div class="field-group voice-upload-group">
-                    <label>Voice Clone (WAV)</label>
+                    <label>Or Upload Voice File (WAV or PT)</label>
                     <div class="voice-upload-row">
-                        <input type="file" class="char-voice-file" accept=".wav" data-char-id="${char.id}">
+                        <input type="file" class="char-voice-file" accept=".wav,.pt" data-char-id="${char.id}">
                         <button class="btn btn-sm btn-secondary" onclick="uploadVoiceClone('${jobId}', '${char.id}', this)">
                             Upload
                         </button>
@@ -642,7 +1081,7 @@ function showCharacterModal(jobId, characters) {
                 </div>
             </div>
         </div>
-    `).join('');
+    `}).join('');
 
     const modal = document.createElement('div');
     modal.id = 'character-modal';
@@ -654,7 +1093,7 @@ function showCharacterModal(jobId, characters) {
                 <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="modal-subtitle">Edit character details or upload voice clone WAV files. Click Confirm to continue processing.</p>
+                <p class="modal-subtitle">Edit character details or upload voice files (.wav or .pt). Click Confirm to continue processing.</p>
                 <div class="characters-list">
                     ${characterRows}
                 </div>
@@ -741,6 +1180,89 @@ async function removeVoiceClone(jobId, characterId, btn) {
         badge.className = 'voice-badge generated';
         badge.textContent = 'GENERATED';
         btn.remove();
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    }
+}
+
+async function assignVoicePreset(jobId, characterId, btn) {
+    const card = btn.closest('.character-card');
+    const select = card.querySelector('.char-voice-preset');
+    const voicePresetId = select.value;
+    
+    if (!voicePresetId) {
+        showToast('Select a voice preset first', 'warning');
+        return;
+    }
+    
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Applying...';
+        
+        const formData = new FormData();
+        formData.append('voice_preset_id', voicePresetId);
+        
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/characters/${characterId}/assign-voice`, {
+            method: 'POST',
+            body: formData,
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to assign voice preset');
+        }
+        
+        const result = await response.json();
+        
+        // Update badge to show preset
+        const badge = card.querySelector('.voice-badge');
+        badge.className = 'voice-badge preset';
+        badge.textContent = 'PRESET';
+        
+        // Update or add "currently assigned" text
+        let assignedDiv = card.querySelector('.voice-preset-assigned');
+        if (!assignedDiv) {
+            assignedDiv = document.createElement('div');
+            assignedDiv.className = 'voice-preset-assigned';
+            select.parentElement.after(assignedDiv);
+        }
+        assignedDiv.innerHTML = `Currently assigned: <strong>${escapeHtml(result.voice_preset_name)}</strong>`;
+        
+        showToast(`Voice "${result.voice_preset_name}" assigned to character`, 'success');
+    } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Apply';
+    }
+}
+
+async function previewVoicePreset(btn) {
+    const card = btn.closest('.character-card');
+    const select = card.querySelector('.char-voice-preset');
+    const voicePresetId = select.value;
+    
+    if (!voicePresetId) {
+        showToast('Select a voice preset to preview', 'warning');
+        return;
+    }
+    
+    try {
+        // Check if audio preview exists, then play it
+        const previewUrl = `${API_BASE}/voices/${voicePresetId}/preview`;
+        
+        // Create or reuse audio element
+        let audio = document.getElementById('voice-preview-audio');
+        if (!audio) {
+            audio = document.createElement('audio');
+            audio.id = 'voice-preview-audio';
+            document.body.appendChild(audio);
+        }
+        
+        audio.src = previewUrl;
+        audio.play().catch(err => {
+            showToast('No audio preview available for this voice', 'warning');
+        });
     } catch (error) {
         showToast(`Error: ${error.message}`, 'error');
     }

@@ -427,7 +427,7 @@ class AudiobookWorkerWithProgress:
     ) -> Dict:
         """
         Create synthesizers for each speaker.
-        Uses uploaded voice clone WAV if available, otherwise generates via VoiceDesign.
+        Priority: 1) .pt voice prompt file, 2) .wav voice clone, 3) generate via VoiceDesign.
         """
         from .tts_synthesizer import TTSSynthesizer, VoiceConfig
 
@@ -436,9 +436,21 @@ class AudiobookWorkerWithProgress:
 
         for idx, speaker in enumerate(detected_speakers):
             speaker_id = speaker["id"]
+            pt_path = voice_clones_dir / f"{speaker_id}.pt"
             clone_path = voice_clones_dir / f"{speaker_id}.wav"
 
-            if clone_path.exists():
+            if pt_path.exists():
+                # User uploaded a .pt voice prompt file — load it directly
+                logger.info(f"Using .pt voice prompt for {speaker['name']}: {pt_path}")
+                voice_config = VoiceConfig(
+                    device=self.tts_device,
+                    dtype=self.tts_dtype,
+                )
+                synthesizer = TTSSynthesizer(
+                    voice_config=voice_config, use_voice_design=False
+                )
+                synthesizer.load_voice_prompt(str(pt_path))
+            elif clone_path.exists():
                 # User uploaded a voice clone — use it directly
                 logger.info(
                     f"Using uploaded voice clone for {speaker['name']}: {clone_path}"
