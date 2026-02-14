@@ -23,7 +23,7 @@ async function loadVoiceLibrary() {
         const response = await fetch(`${API_BASE}/voices`);
         const voices = await response.json();
         
-        const container = document.getElementById('voice-presets-list');
+        const container = document.getElementById('voice-list');
         if (!container) return;
         
         if (voices.length === 0) {
@@ -278,8 +278,8 @@ function showCreateVoiceModal() {
                         <input type="text" id="upl-voice-description" placeholder="Brief description of this voice">
                     </div>
                     <div class="form-group">
-                        <label>Voice File * (.wav or .pt)</label>
-                        <input type="file" id="upl-voice-file" accept=".wav,.pt">
+                        <label>Voice File * (.wav, .mp3, or .pt)</label>
+                        <input type="file" id="upl-voice-file" accept=".wav,.mp3,.pt">
                     </div>
                     <div class="form-group" id="upl-ref-text-group">
                         <label>Reference Text (for .wav files - what is spoken in the audio)</label>
