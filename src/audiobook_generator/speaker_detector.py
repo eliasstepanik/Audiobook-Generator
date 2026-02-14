@@ -68,12 +68,19 @@ EXAMPLES OF GOOD voice_characteristics:
 - "Child, 10 years old, high-pitched, fast pace"
 
 IMPORTANT RULES:
-- Always include a "narrator" speaker
+- ONLY include a "narrator" speaker if there is actual narration text (descriptive prose, scene-setting, action descriptions)
+- If the text is PURELY dialogue from one or more characters with NO narration, do NOT add a narrator
+- If ALL text is spoken by a single character (monologue, speech, quest description), return ONLY that one speaker
 - Be SPECIFIC - use exact parameters like "high-pitched, fast pace" not just "energetic voice"
 - Match voice to character personality using PHYSICAL traits (villain = low pitch + slow pace, child = high pitch + fast pace)
 - Match voice to age (child = high pitch + fast pace, elderly = low pitch + slow pace)
 - Keep IDs as simple lowercase with underscores (e.g., "john_smith")
-- Return ONLY valid JSON, no markdown formatting, no extra text"""
+- Return ONLY valid JSON, no markdown formatting, no extra text
+
+EXAMPLES:
+- Text: "Hello, I need your help finding my lost cat." → 1 speaker (the person speaking)
+- Text: "The sun set over the hills. 'We should go,' said Maria." → 2 speakers (narrator + Maria)
+- Text: Pure monologue/speech → 1 speaker only (no narrator needed)"""
 
     def _get_incremental_detection_prompt(
         self, existing_speakers: List[Dict[str, str]]
