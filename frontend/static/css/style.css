@@ -829,6 +829,31 @@ header h1 {
     color: #64748b;
 }
 
+/* Voice Library Section */
+.voice-library-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.voice-library-section .section-header h2 {
+    margin: 0;
+}
+
+.voice-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.voice-list .loading {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: #64748b;
+    padding: 24px;
+}
+
 /* Voice Library */
 .voice-library {
     display: flex;

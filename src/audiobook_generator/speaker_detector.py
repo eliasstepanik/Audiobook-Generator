@@ -67,20 +67,30 @@ EXAMPLES OF GOOD voice_characteristics:
 - "Male, 45 years old, very low-pitched, very slow pace"
 - "Child, 10 years old, high-pitched, fast pace"
 
-IMPORTANT RULES:
-- ONLY include a "narrator" speaker if there is actual narration text (descriptive prose, scene-setting, action descriptions)
-- If the text is PURELY dialogue from one or more characters with NO narration, do NOT add a narrator
-- If ALL text is spoken by a single character (monologue, speech, quest description), return ONLY that one speaker
+CRITICAL RULES FOR NARRATOR DETECTION:
+- A "narrator" is ONLY needed when there is THIRD-PERSON descriptive text like:
+  * "He walked to the door" (describing actions)
+  * "The sun set over the hills" (describing scenes)
+  * "she said angrily" (dialogue tags describing HOW someone speaks)
+- Do NOT add a narrator for:
+  * Direct speech/dialogue WITHOUT narration: "Hello, I need help" → just 1 speaker
+  * First-person monologue: "I've been waiting for you" → just 1 speaker
+  * Quest text/instructions spoken by a character → just 1 speaker
+  * Any text that is ENTIRELY someone speaking to the reader/player
+- If text has NO third-person descriptions, NO scene-setting, NO action tags → NO NARRATOR
+
+VOICE RULES:
 - Be SPECIFIC - use exact parameters like "high-pitched, fast pace" not just "energetic voice"
-- Match voice to character personality using PHYSICAL traits (villain = low pitch + slow pace, child = high pitch + fast pace)
+- Match voice to personality (villain = low pitch + slow pace, child = high pitch + fast pace)
 - Match voice to age (child = high pitch + fast pace, elderly = low pitch + slow pace)
 - Keep IDs as simple lowercase with underscores (e.g., "john_smith")
 - Return ONLY valid JSON, no markdown formatting, no extra text
 
 EXAMPLES:
-- Text: "Hello, I need your help finding my lost cat." → 1 speaker (the person speaking)
-- Text: "The sun set over the hills. 'We should go,' said Maria." → 2 speakers (narrator + Maria)
-- Text: Pure monologue/speech → 1 speaker only (no narrator needed)"""
+- "Du siehst aus wie jemand, den man nicht einschüchtert" → 1 speaker (someone talking TO you, NO narrator)
+- "Hello, I need your help finding my cat." → 1 speaker (direct speech, NO narrator)
+- "The door creaked open. 'Hello,' said John." → 2 speakers (narrator describes door + John speaks)
+- Pure quest dialogue/monologue → 1 speaker only (NO narrator)"""
 
     def _get_incremental_detection_prompt(
         self, existing_speakers: List[Dict[str, str]]
